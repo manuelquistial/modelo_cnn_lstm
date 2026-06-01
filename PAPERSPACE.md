@@ -1,6 +1,9 @@
 # Ejecución en Paperspace (Gradient)
 
-Repositorio: `git@github.com:manuelquistial/modelo_cnn_lstm.git`
+Repositorio: https://github.com/manuelquistial/modelo_cnn_lstm
+
+> **En Paperspace no uses SSH** (`git@github.com:...`) salvo que hayas añadido una clave pública a GitHub.  
+> Usa **HTTPS** (abajo). Si el repo es privado, usa un [Personal Access Token](https://github.com/settings/tokens).
 
 ## 1. Crear máquina
 
@@ -11,10 +14,19 @@ Repositorio: `git@github.com:manuelquistial/modelo_cnn_lstm.git`
 ## 2. Clonar e instalar
 
 ```bash
-git clone git@github.com:manuelquistial/modelo_cnn_lstm.git
+# Clonar por HTTPS (recomendado en Paperspace)
+git clone https://github.com/manuelquistial/modelo_cnn_lstm.git
 cd modelo_cnn_lstm
 chmod +x scripts/*.sh
 ./scripts/paperspace_setup.sh
+```
+
+Si el repositorio es **privado**:
+
+```bash
+git clone https://<TU_TOKEN>@github.com/manuelquistial/modelo_cnn_lstm.git
+# o: git clone https://github.com/manuelquistial/modelo_cnn_lstm.git
+#     usuario: tu GitHub login | contraseña: el token (no tu password)
 ```
 
 ## 3. Prueba rápida (5 sujetos, ~30–60 min)

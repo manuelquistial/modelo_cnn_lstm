@@ -4,7 +4,8 @@
 
 Research-grade replication of **"Enhanced EEG signal classification in brain computer interfaces using hybrid deep learning models"** (Das et al., 2025) for a master thesis on EEG-based motor imagery BCI.
 
-**Remote:** `git@github.com:manuelquistial/modelo_cnn_lstm.git`  
+**GitHub:** https://github.com/manuelquistial/modelo_cnn_lstm  
+**Clone (Paperspace / sin SSH):** `git clone https://github.com/manuelquistial/modelo_cnn_lstm.git`  
 **Runtime:** TensorFlow/Keras — optimizado para **Paperspace GPU** → ver [PAPERSPACE.md](PAPERSPACE.md).
 
 ## Features
@@ -26,7 +27,7 @@ Research-grade replication of **"Enhanced EEG signal classification in brain com
 ### Local
 
 ```bash
-git clone git@github.com:manuelquistial/modelo_cnn_lstm.git
+git clone https://github.com/manuelquistial/modelo_cnn_lstm.git
 cd modelo_cnn_lstm
 python3.11 -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
@@ -37,7 +38,7 @@ pip install -e .
 ### Paperspace (GPU)
 
 ```bash
-git clone git@github.com:manuelquistial/modelo_cnn_lstm.git
+git clone https://github.com/manuelquistial/modelo_cnn_lstm.git
 cd modelo_cnn_lstm
 ./scripts/paperspace_setup.sh
 QUICK=1 ./scripts/paperspace_run.sh

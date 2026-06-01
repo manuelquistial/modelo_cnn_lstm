@@ -1,0 +1,18 @@
+.venv/
+venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+outputs/
+*.keras
+*.h5
+.DS_Store
+.ipynb_checkpoints/
+mne_data/
+*.log
+
+# Local env (Paperspace uses scripts/paperspace_setup.sh)
+.env
+
+# Optional: keep PDF out of git (uncomment if you prefer)
+# *.pdf

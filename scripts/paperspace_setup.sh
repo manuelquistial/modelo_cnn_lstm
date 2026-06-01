@@ -4,6 +4,8 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
+# shellcheck disable=SC1091
+source "$REPO_ROOT/scripts/venv_common.sh"
 
 echo "==> Repo: $REPO_ROOT"
 echo "==> Python: $(python3 --version 2>&1 || true)"
@@ -15,25 +17,26 @@ if ! "$PY" -c 'import sys; assert (3,10) <= sys.version_info[:2] < (3,13)' 2>/de
 fi
 
 if [[ ! -d .venv ]]; then
+  echo "==> Creating .venv ..."
   "$PY" -m venv .venv
 fi
-# shellcheck disable=SC1091
-source .venv/bin/activate
+require_venv
+activate_venv
 
-pip install -U pip wheel setuptools
+"$VENV_PIP" install -U pip wheel setuptools
 
 # TensorFlow with GPU on Linux (Paperspace CUDA images)
 if command -v nvidia-smi &>/dev/null; then
   echo "==> NVIDIA GPU detected"
   nvidia-smi --query-gpu=name,memory.total --format=csv,noheader || true
-  pip install "tensorflow[and-cuda]>=2.15" || pip install "tensorflow>=2.15"
+  "$VENV_PIP" install "tensorflow[and-cuda]>=2.15" || "$VENV_PIP" install "tensorflow>=2.15"
 else
   echo "==> No GPU — installing CPU TensorFlow"
-  pip install "tensorflow>=2.15"
+  "$VENV_PIP" install "tensorflow>=2.15"
 fi
 
-pip install -r requirements.txt
-pip install -e .
+"$VENV_PIP" install -r requirements.txt
+"$VENV_PIP" install -e .
 
 # Persist PhysioNet / MNE data on Paperspace volume (optional)
 export MNE_DATA="${MNE_DATA:-$REPO_ROOT/mne_data}"
@@ -47,10 +50,20 @@ fi
 grep -q 'MNE_DATA=' .venv/bin/activate 2>/dev/null || echo "export MNE_DATA=$MNE_DATA" >> .venv/bin/activate
 grep -q 'MNE_HOME=' .venv/bin/activate 2>/dev/null || echo "export MNE_HOME=$MNE_HOME" >> .venv/bin/activate
 
-python -c "
+"$VENV_PYTHON" -c "
 import tensorflow as tf
 print('TensorFlow', tf.__version__)
 print('GPUs:', tf.config.list_physical_devices('GPU'))
 "
 
-echo "==> Setup complete. Activate: source .venv/bin/activate"
+# Jupyter / Paperspace notebook kernel → same .venv
+if "$VENV_PYTHON" -c "import ipykernel" 2>/dev/null; then
+  "$VENV_PYTHON" -m ipykernel install --user --name=modelo-cnn-lstm --display-name="Python (modelo_cnn_lstm .venv)" || true
+fi
+
+echo ""
+echo "==> Setup complete (.venv ready)"
+echo "    Opción A: source .venv/bin/activate"
+echo "    Opción B: .venv/bin/python -m das2025_replication.run_experiments --quick"
+echo "    Opción C: QUICK=1 ./scripts/paperspace_run.sh"
+echo "    Opción D: make run-quick"

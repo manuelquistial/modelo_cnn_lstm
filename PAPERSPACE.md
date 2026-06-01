@@ -11,7 +11,9 @@ Repositorio: https://github.com/manuelquistial/modelo_cnn_lstm
 - Imagen: **Ubuntu 22.04** + **CUDA** (template con GPU).
 - Python **3.10** o **3.11** (evitar 3.14; TensorFlow aún no es estable ahí).
 
-## 2. Clonar e instalar
+## 2. Clonar e instalar (crea `.venv`)
+
+> **Nota:** El proyecto usa **`.venv`** (entorno virtual Python), **no** un archivo `.env`.
 
 ```bash
 # Clonar por HTTPS (recomendado en Paperspace)
@@ -19,6 +21,25 @@ git clone https://github.com/manuelquistial/modelo_cnn_lstm.git
 cd modelo_cnn_lstm
 chmod +x scripts/*.sh
 ./scripts/paperspace_setup.sh
+```
+
+Eso crea `.venv/`, instala dependencias y registra el kernel Jupyter `Python (modelo_cnn_lstm .venv)`.
+
+**Formas de ejecutar** (todas usan el mismo `.venv`):
+
+```bash
+# Sin activar manualmente (recomendado)
+QUICK=1 ./scripts/paperspace_run.sh
+
+# O con Make
+make run-quick
+
+# O activando el venv
+source .venv/bin/activate
+python -m das2025_replication.run_experiments --quick --no-roi --no-segment
+
+# O llamando al intérprete del venv directamente
+.venv/bin/python -m das2025_replication.run_experiments --quick --no-roi --no-segment
 ```
 
 Si el repositorio es **privado**:
@@ -88,6 +109,12 @@ O manualmente:
 ```bash
 source .venv/bin/activate
 python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
+```
+
+O sin activar:
+
+```bash
+./scripts/check_gpu.sh
 ```
 
 Si ves `[PhysicalDevice(name='/physical_device:GPU:0', ...)]`, **TensorFlow usará la GPU** al entrenar (CNN/LSTM/GAN). Los mensajes `cpu_feature_guard` al importar TensorFlow son **normales**: indican optimizaciones CPU para operaciones que aún corren en CPU; no significan que la GPU esté desactivada.

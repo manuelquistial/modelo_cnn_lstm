@@ -1,17 +1,23 @@
 #!/usr/bin/env bash
-# Verify TensorFlow sees the NVIDIA GPU on Paperspace
+# Verify TensorFlow sees the NVIDIA GPU (uses .venv)
 set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 # shellcheck disable=SC1091
-source .venv/bin/activate
+source "$REPO_ROOT/scripts/venv_common.sh"
+require_venv
+export_repo_env
 
+echo "=== Python (.venv) ==="
+"$VENV_PYTHON" --version
+
+echo ""
 echo "=== nvidia-smi ==="
 nvidia-smi || echo "(nvidia-smi not available)"
 
 echo ""
 echo "=== TensorFlow ==="
-python <<'PY'
+"$VENV_PYTHON" <<'PY'
 import tensorflow as tf
 
 print("TensorFlow version:", tf.__version__)

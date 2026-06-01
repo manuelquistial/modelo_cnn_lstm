@@ -37,12 +37,17 @@ pip install -e .
 
 ### Paperspace (GPU)
 
+Usa **`.venv`** (entorno virtual), no un archivo `.env`:
+
 ```bash
 git clone https://github.com/manuelquistial/modelo_cnn_lstm.git
 cd modelo_cnn_lstm
-./scripts/paperspace_setup.sh
-QUICK=1 ./scripts/paperspace_run.sh
+chmod +x scripts/*.sh
+./scripts/paperspace_setup.sh    # crea .venv e instala todo
+QUICK=1 ./scripts/paperspace_run.sh   # usa .venv/bin/python automáticamente
 ```
+
+Alternativa con Make: `make setup && make run-quick`
 
 Detalle completo: **[PAPERSPACE.md](PAPERSPACE.md)**.
 

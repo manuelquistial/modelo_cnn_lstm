@@ -1,18 +1,13 @@
 #!/usr/bin/env bash
-# Run Das 2025 replication on Paperspace (after paperspace_setup.sh)
+# Run Das 2025 replication using .venv/bin/python (after paperspace_setup.sh)
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
-
 # shellcheck disable=SC1091
-source .venv/bin/activate
-
-export MNE_DATA="${MNE_DATA:-$REPO_ROOT/mne_data}"
-export PYTHONUNBUFFERED=1
-
-# Limit GPU memory growth (avoid OOM on smaller Paperspace GPUs)
-export TF_FORCE_GPU_ALLOW_GROWTH=true
+source "$REPO_ROOT/scripts/venv_common.sh"
+require_venv
+export_repo_env
 
 MODE="${MODE:-binary}"
 SPLIT="${SPLIT:-subjectwise}"
@@ -65,5 +60,5 @@ if [[ "${PAPER:-0}" == "1" ]]; then
   fi
 fi
 
-echo "==> Running: python ${ARGS[*]} ${EXTRA_ARGS[*]}"
-python "${ARGS[@]}" "${EXTRA_ARGS[@]}"
+echo "==> Running: $VENV_PYTHON ${ARGS[*]} ${EXTRA_ARGS[*]}"
+"$VENV_PYTHON" "${ARGS[@]}" "${EXTRA_ARGS[@]}"

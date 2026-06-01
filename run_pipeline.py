@@ -9,11 +9,28 @@ Usage:
 """
 
 import argparse
+import sys
+from pathlib import Path
 
 from das2025_replication.config import DEFAULT_OUTPUT_DIR, DL_EPOCHS
 from das2025_replication.run_experiments import run_complete_das2025_replication
 
+_REPO = Path(__file__).resolve().parent
+_VENV_PY = _REPO / ".venv" / "bin" / "python"
+
+
+def _warn_if_not_venv() -> None:
+    in_venv = hasattr(sys, "real_prefix") or sys.prefix != sys.base_prefix
+    if not in_venv and _VENV_PY.is_file():
+        print(
+            "AVISO: no estás dentro de .venv. Usa:\n"
+            f"  source {_REPO}/.venv/bin/activate\n"
+            f"  o: {_VENV_PY} {Path(__file__).name} ...",
+            file=sys.stderr,
+        )
+
 if __name__ == "__main__":
+    _warn_if_not_venv()
     parser = argparse.ArgumentParser(
         description="Das et al. (2025) EEG MI classification replication"
     )

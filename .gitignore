@@ -11,7 +11,7 @@ outputs/
 mne_data/
 *.log
 
-# Local env (Paperspace uses scripts/paperspace_setup.sh)
+# Local secrets only — project runtime uses .venv/, not .env
 .env
 
 # Optional: keep PDF out of git (uncomment if you prefer)

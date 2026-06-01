@@ -79,9 +79,26 @@ export MNE_DATA=/notebooks/persistent/mne_data
 ## Verificar GPU
 
 ```bash
+chmod +x scripts/check_gpu.sh
+./scripts/check_gpu.sh
+```
+
+O manualmente:
+
+```bash
 source .venv/bin/activate
 python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
 ```
+
+Si ves `[PhysicalDevice(name='/physical_device:GPU:0', ...)]`, **TensorFlow usará la GPU** al entrenar (CNN/LSTM/GAN). Los mensajes `cpu_feature_guard` al importar TensorFlow son **normales**: indican optimizaciones CPU para operaciones que aún corren en CPU; no significan que la GPU esté desactivada.
+
+Durante el entrenamiento, en otra terminal:
+
+```bash
+watch -n 2 nvidia-smi
+```
+
+Deberías ver uso de memoria GPU y proceso `python` cuando empiece `model.fit`.
 
 ## Stack
 

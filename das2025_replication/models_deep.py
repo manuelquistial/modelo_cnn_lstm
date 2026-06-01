@@ -30,11 +30,34 @@ def _require_tf() -> None:
         )
 
 
+def configure_tf_gpu(log: bool = True) -> list:
+    """
+    Enable GPU memory growth and return visible GPU devices.
+
+    TensorFlow/Keras uses GPU automatically when available; this avoids OOM on
+    Paperspace by not allocating all VRAM at once.
+    """
+    _require_tf()
+    gpus = tf.config.list_physical_devices("GPU")
+    for gpu in gpus:
+        try:
+            tf.config.experimental.set_memory_growth(gpu, True)
+        except RuntimeError:
+            pass
+    if log:
+        if gpus:
+            print(f"TensorFlow GPU enabled: {len(gpus)} device(s) — {gpus}")
+        else:
+            print("TensorFlow: no GPU found — training will use CPU.")
+    return gpus
+
+
 def set_reproducibility(seed: int = RANDOM_STATE) -> None:
     """Set random seeds for reproducibility."""
     np.random.seed(seed)
     if HAS_TF:
         tf.random.set_seed(seed)
+        configure_tf_gpu(log=True)
 
 
 class AttentionLayer(layers.Layer if HAS_TF else object):

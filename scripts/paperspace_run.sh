@@ -35,12 +35,30 @@ fi
 
 # Quick smoke: QUICK=1 ./scripts/paperspace_run.sh
 if [[ "${QUICK:-0}" == "1" ]]; then
+  MAX_SUBJECTS="${MAX_SUBJECTS:-5}"
   ARGS+=(--quick --no-roi --no-segment)
 fi
 
 # Paper-like protocol: PAPER=1 ./scripts/paperspace_run.sh
+# (multiclass, trial-wise split, 640x2 input, per-ROI epochs from Table 6)
 if [[ "${PAPER:-0}" == "1" ]]; then
-  ARGS+=(--mode multiclass --trialwise --paper-input --paper-roi-epochs)
+  MODE="multiclass"
+  SPLIT="trialwise"
+  ARGS=(
+    -m das2025_replication.run_experiments
+    --mode "$MODE"
+    --split "$SPLIT"
+    --epochs "$EPOCHS"
+    --output-dir "$OUTPUT_DIR"
+    --paper-input
+    --paper-roi-epochs
+  )
+  if [[ -n "$MAX_SUBJECTS" ]]; then
+    ARGS+=(--max-subjects "$MAX_SUBJECTS")
+  else
+    echo "WARNING: PAPER=1 without MAX_SUBJECTS — all 103 subjects + 6 ROIs (many hours)."
+    echo "         Suggested: MAX_SUBJECTS=15 PAPER=1 ./scripts/paperspace_run.sh"
+  fi
 fi
 
 echo "==> Running: python ${ARGS[*]} ${EXTRA_ARGS[*]}"

@@ -470,6 +470,19 @@ def run_complete_das2025_replication(
 
     results: dict[str, Any] = {}
 
+    print("\n" + "=" * 70)
+    print("EXPERIMENT CONFIG")
+    print("=" * 70)
+    print(f"  mode:              {mode}")
+    print(f"  split:             {split_strategy}")
+    print(f"  subjects:          {len(subjects)}")
+    print(f"  paper_input:       {paper_input}")
+    print(f"  paper_roi_epochs:  {use_paper_roi_epochs}")
+    print(f"  segment_length:    {seg_len}s")
+    print(f"  dl_epochs:         {dl_epochs}")
+    print(f"  run_roi:           {run_roi_experiments}")
+    print("=" * 70)
+
     # --- Primary dataset (ROI_6, 5s) ---
     print("\n" + "=" * 70)
     print("BUILDING PRIMARY DATASET (ROI_6, 5s)")

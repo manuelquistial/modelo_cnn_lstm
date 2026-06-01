@@ -20,11 +20,18 @@ except ImportError:
     HAS_PYWT = False
 
 
+def _trapz(y: np.ndarray, x: np.ndarray) -> float:
+    """Trapezoidal integration (NumPy 2.x uses trapezoid; 1.x uses trapz)."""
+    if hasattr(np, "trapezoid"):
+        return float(np.trapezoid(y, x))
+    return float(np.trapz(y, x))
+
+
 def _bandpower(freqs: np.ndarray, psd: np.ndarray, fmin: float, fmax: float) -> float:
     mask = (freqs >= fmin) & (freqs <= fmax)
     if not np.any(mask):
         return 0.0
-    return float(np.trapz(psd[mask], freqs[mask]))
+    return _trapz(psd[mask], freqs[mask])
 
 
 def _spectral_features(psd: np.ndarray, freqs: np.ndarray) -> dict[str, float]:

@@ -1025,6 +1025,11 @@ if __name__ == "__main__":
     parser.add_argument("--epochs", type=int, default=DL_EPOCHS)
     parser.add_argument("--quick", action="store_true", help="Fast test with 5 subjects")
     parser.add_argument("--gan", action="store_true", help="Enable GAN augmentation")
+    parser.add_argument(
+        "--gan-ablation",
+        action="store_true",
+        help="Compare CNN-LSTM with vs without WGAN-GP (train only)",
+    )
     parser.add_argument("--no-roi", action="store_true", help="Skip ROI loop")
     parser.add_argument("--no-segment", action="store_true", help="Skip segment length exp")
     parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR))
@@ -1046,7 +1051,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--paper-protocol",
         action="store_true",
-        help="Full paper protocol: multiclass, trialwise, 5s→640×2, ICA+CSP, Table 6 epochs",
+        help="Thesis protocol: Mode A/B, subjectwise 70/15/15, 640×2, ICA+CSP, GAN ablation",
     )
     parser.add_argument(
         "--binary-table8",

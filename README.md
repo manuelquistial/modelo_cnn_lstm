@@ -18,7 +18,8 @@ Research-grade replication of **"Enhanced EEG signal classification in brain com
 - Deep learning: CNN, LSTM, CNN-LSTM-Attention (main hybrid model)
 - Optional WGAN-GP data augmentation (train only)
 - Riemannian geometry baselines (pyriemann)
-- Subject-wise and trial-wise splits (no leakage in subject-wise mode)
+- Subject-wise 70/15/15 split (thesis default) and optional trial-wise comparison
+- Mode A (5-class E–I) and Mode B (binary left/right) per Das et al.
 - PCA/t-SNE visualizations, confusion matrices, ROC curves
 - CSV/JSON outputs and error analysis by subject/trial
 
@@ -131,6 +132,8 @@ Saved under `outputs/das2025_replication/`:
 | `roi_results.csv` | Per-ROI comparison |
 | `segment_length_results.csv` | 1s/4s/5s × 25/50 epochs |
 | `riemannian_results.csv` | Riemannian baselines |
+| `gan_ablation_results.csv` | CNN-LSTM sin GAN vs con WGAN-GP |
+| `binary_table8_results.csv` | Modo B — left vs right (runs 4/8/12) |
 | `predictions_by_trial.csv` | Per-trial predictions |
 | `errors_by_subject.csv` | Subject-level errors |
 | `misclassified_trials.csv` | Misclassified trials |
@@ -139,27 +142,27 @@ Saved under `outputs/das2025_replication/`:
 
 ## Fidelity to Das et al. (2025)
 
-See **[docs/PAPER_AUDIT_Das2025.md](docs/PAPER_AUDIT_Das2025.md)** for a line-by-line comparison with the article.
+- **[docs/THESIS_PROTOCOL.md](docs/THESIS_PROTOCOL.md)** — decisiones metodológicas para la tesis (Modos A/B, split, GAN ablation).
+- **[docs/PAPER_AUDIT_Das2025.md](docs/PAPER_AUDIT_Das2025.md)** — comparación línea a línea con el artículo.
 
-To run closer to the paper's reported setup (640×2 contralateral input, trial-wise split):
+**Reproducción principal (Modo A + B, split 70/15/15 por sujeto):**
 
 ```bash
-python -m das2025_replication.run_experiments \
-  --mode multiclass \
-  --trialwise \
-  --paper-input \
-  --paper-roi-epochs \
-  --epochs 50
+MAX_SUBJECTS=15 PAPER=1 EPOCHS=50 ./scripts/paperspace_run.sh --no-viz
+# equivalente:
+python -m das2025_replication.run_experiments --paper-protocol --max-subjects 15 --epochs 50 --no-viz
 ```
+
+Esto ejecuta: 5 clases (E–I, runs 4/6/8/10/12/14), Tabla 8 binaria (runs 4/8/12), 6 ROIs, ablation GAN (sin vs con WGAN-GP), baseline Riemannian y ML.
 
 ## Methodological notes
 
-1. **Subject-wise split** (`split_strategy="subjectwise"`) is recommended for thesis work — no subject appears in both train and test.
-2. **Trial-wise split** reproduces a paper-like setup but may inflate accuracy via subject leakage.
-3. Results are **not** tuned to match the paper's reported ~96% accuracy; honest cross-subject performance is expected to be lower.
-4. The paper mentions both five-class and binary tasks; both are implemented.
-5. Segment length: primary = 5s (800 samples @ 160 Hz); 4s (640 samples) included for the article's 640×2 inconsistency.
-6. All scalers, CSP, PCA (when used for ML), and GANs are fit **only on training data**.
+1. **Split principal:** `subjectwise_3way` (70/15/15 por sujeto) — sin fuga inter-sujeto. Ver `docs/THESIS_PROTOCOL.md`.
+2. **Trial-wise split** — solo comparación secundaria; no usar como métrica principal de tesis.
+3. El **96.06%** de Tabla 6 es *test accuracy reportado*; no implica generalización cross-subject.
+4. **Modo A:** E,F,G,H,I (Tablas 6/7). **Modo B:** left vs right (Tabla 8, t-SNE).
+5. CSP, z-score y GAN se ajustan **solo en train**; val/test son datos reales.
+6. Riemannian geometry es baseline separado, no parte del CNN-LSTM.
 
 ## Assumptions
 

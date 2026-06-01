@@ -166,6 +166,12 @@ def map_events_multiclass(events: np.ndarray, run_id: int) -> list[dict]:
     return mapped
 
 
+def _paper_class_label(internal_class_name: str) -> str:
+    from .config import PAPER_LABEL_FROM_INTERNAL
+
+    return PAPER_LABEL_FROM_INTERNAL.get(internal_class_name, internal_class_name)
+
+
 def _label_for_event(mode: ModeType, run_id: int, event_code: int):
     if mode == "binary":
         return _binary_class_for_run(run_id, event_code)
@@ -260,6 +266,7 @@ def extract_epochs_for_subject(
                 "original_event": code,
                 "class_name": class_name,
                 "label": label,
+                "paper_class": _paper_class_label(class_name),
                 "epoch_start_time": ep_events[i, 0] / sfreq,
                 "segment_length": segment_length,
                 "sfreq": sfreq,
@@ -277,7 +284,7 @@ def extract_epochs_for_subject(
     assert X.ndim == 3
     required = [
         "subject", "run", "trial_id", "original_event", "class_name",
-        "label", "epoch_start_time", "segment_length", "sfreq", "n_samples",
+        "label", "paper_class", "epoch_start_time", "segment_length", "sfreq", "n_samples",
     ]
     for col in required:
         assert col in metadata.columns, f"Missing column: {col}"

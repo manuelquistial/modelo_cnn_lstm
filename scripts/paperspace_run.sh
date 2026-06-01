@@ -10,7 +10,7 @@ require_venv
 export_repo_env
 
 MODE="${MODE:-binary}"
-SPLIT="${SPLIT:-subjectwise}"
+SPLIT="${SPLIT:-subjectwise_3way}"
 MAX_SUBJECTS="${MAX_SUBJECTS:-}"
 EPOCHS="${EPOCHS:-50}"
 OUTPUT_DIR="${OUTPUT_DIR:-$REPO_ROOT/outputs/das2025_replication}"
@@ -34,15 +34,10 @@ if [[ "${QUICK:-0}" == "1" ]]; then
   ARGS+=(--quick --no-roi --no-segment)
 fi
 
-# Paper-like protocol: PAPER=1 ./scripts/paperspace_run.sh
-# Full Das et al. (2025): multiclass, trial-wise, 5s→640×2, ICA+CSP, Table 6 epochs, Table 8 binary
+# Das reimplementation: PAPER=1 → Mode A (5-class) + Mode B (binary Table 8), subject split 70/15/15
 if [[ "${PAPER:-0}" == "1" ]]; then
-  MODE="multiclass"
-  SPLIT="trialwise"
   ARGS=(
     -m das2025_replication.run_experiments
-    --mode "$MODE"
-    --split "$SPLIT"
     --epochs "$EPOCHS"
     --output-dir "$OUTPUT_DIR"
     --paper-protocol

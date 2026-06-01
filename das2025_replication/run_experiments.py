@@ -55,6 +55,7 @@ from .preprocessing import (
     fit_channelwise_standardizer,
     fit_sklearn_scaler,
     make_subjectwise_split,
+    make_subjectwise_train_val_test_split,
     make_trialwise_split,
     make_validation_split_from_train,
 )
@@ -76,13 +77,52 @@ from .visualization import (
     run_pca_visualization,
 )
 
-SplitStrategy = Literal["trialwise", "subjectwise"]
+SplitStrategy = Literal["trialwise", "subjectwise", "subjectwise_3way"]
 
 
 def _get_split_fn(strategy: SplitStrategy):
     if strategy == "trialwise":
         return make_trialwise_split
+    if strategy == "subjectwise_3way":
+        return None  # handled separately
     return make_subjectwise_split
+
+
+def _split_data(
+    X: np.ndarray,
+    y: np.ndarray,
+    metadata: pd.DataFrame,
+    split_strategy: SplitStrategy,
+) -> tuple[
+    np.ndarray, np.ndarray, np.ndarray,
+    np.ndarray, np.ndarray, np.ndarray,
+    pd.DataFrame, pd.DataFrame | None, pd.DataFrame,
+]:
+    """
+    Split dataset. Returns train, optional val, test (+ metadata).
+
+    ``subjectwise_3way`` → 70/15/15 by subject (thesis default).
+    """
+    if split_strategy == "subjectwise_3way":
+        (
+            X_train, X_val, X_test,
+            y_train, y_val, y_test,
+            meta_train, meta_val, meta_test,
+        ) = make_subjectwise_train_val_test_split(X, y, metadata)
+        return (
+            X_train, X_val, X_test,
+            y_train, y_val, y_test,
+            meta_train, meta_val, meta_test,
+        )
+    split_fn = _get_split_fn(split_strategy)
+    X_train, X_test, y_train, y_test, meta_train, meta_test = split_fn(
+        X, y, metadata
+    )
+    return (
+        X_train, None, X_test,
+        y_train, None, y_test,
+        meta_train, None, meta_test,
+    )
 
 
 def _get_class_names(mode: str) -> list[str]:
@@ -119,6 +159,8 @@ def _prepare_dl_data(
     subjectwise_val: bool = True,
     meta_train: pd.DataFrame | None = None,
     y_train: np.ndarray | None = None,
+    X_val: np.ndarray | None = None,
+    y_val: np.ndarray | None = None,
     *,
     channel_names: list[str] | None = None,
     roi_name: str = "ROI_6",
@@ -128,28 +170,32 @@ def _prepare_dl_data(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Convert to DL format, paper CSP/640×2 if requested, normalize on train only."""
     if y_train is None:
-        raise ValueError("y_train required for validation split")
+        raise ValueError("y_train required")
 
     if paper_preprocess:
-        X_tr, X_te, _ = prepare_paper_dl_tensors(
-            X_train,
-            y_train,
-            X_test,
-            channel_names or [],
-            roi_name,
-            paper_input=paper_input,
-            paper_preprocess=True,
+        X_tr, X_te, X_va, _ = prepare_paper_dl_tensors(
+            X_train, y_train, X_test,
+            channel_names or [], roi_name,
+            paper_input=paper_input, paper_preprocess=True,
+            X_val=X_val,
         )
     else:
         X_tr = prepare_deep_learning_input(X_train)
         X_te = prepare_deep_learning_input(X_test)
+        X_va = prepare_deep_learning_input(X_val) if X_val is not None else None
 
     mean, std = fit_channelwise_standardizer(X_tr)
     X_tr = apply_channelwise_standardizer(X_tr, mean, std)
     X_te = apply_channelwise_standardizer(X_te, mean, std)
+    if X_va is not None:
+        X_va = apply_channelwise_standardizer(X_va, mean, std)
+
+    if X_va is not None and y_val is not None:
+        X_fit, y_fit = augment_train_with_gan_if_enabled(X_tr, y_train, use_gan)
+        return X_fit, X_va, X_te, y_fit, y_val, X_te
 
     if meta_train is not None:
-        X_fit, X_val, y_fit, y_val, _, _ = make_validation_split_from_train(
+        X_fit, X_val_i, y_fit, y_val_i, _, _ = make_validation_split_from_train(
             X_tr, y_train, meta_train, subjectwise=subjectwise_val
         )
     else:
@@ -159,11 +205,11 @@ def _prepare_dl_data(
         tr_i, val_i = train_test_split(
             idx, test_size=0.15, stratify=y_train, random_state=RANDOM_STATE
         )
-        X_fit, X_val = X_tr[tr_i], X_tr[val_i]
-        y_fit, y_val = y_train[tr_i], y_train[val_i]
+        X_fit, X_val_i = X_tr[tr_i], X_tr[val_i]
+        y_fit, y_val_i = y_train[tr_i], y_train[val_i]
 
     X_fit, y_fit = augment_train_with_gan_if_enabled(X_fit, y_fit, use_gan)
-    return X_fit, X_val, X_te, y_fit, y_val, X_te
+    return X_fit, X_val_i, X_te, y_fit, y_val_i, X_te
 
 
 def run_single_deep_experiment(
@@ -186,6 +232,9 @@ def run_single_deep_experiment(
     paper_preprocess: bool = False,
     use_gan: bool = False,
     use_class_weights: bool = False,
+    X_val: np.ndarray | None = None,
+    y_val: np.ndarray | None = None,
+    meta_val: pd.DataFrame | None = None,
 ) -> tuple[dict, pd.DataFrame, dict, Any]:
     """Train and evaluate one deep model."""
     if not HAS_TF:
@@ -193,13 +242,15 @@ def run_single_deep_experiment(
         return {}, pd.DataFrame(), {}, None
 
     set_reproducibility()
-    subjectwise_val = split_strategy == "subjectwise"
-    X_fit, X_val, X_te, y_fit, y_val, _ = _prepare_dl_data(
+    subjectwise_val = split_strategy in ("subjectwise", "subjectwise_3way")
+    X_fit, X_v, X_te, y_fit, y_v, _ = _prepare_dl_data(
         X_train,
         X_test,
         subjectwise_val,
         meta_train,
         y_train,
+        X_val=X_val,
+        y_val=y_val,
         channel_names=channel_names,
         roi_name=roi_name,
         paper_input=paper_input,
@@ -215,7 +266,7 @@ def run_single_deep_experiment(
 
     class_weight = _compute_balanced_class_weights(y_fit) if use_class_weights else None
     model, history, fit_time = train_deep_model(
-        model, X_fit, y_fit, X_val, y_val,
+        model, X_fit, y_fit, X_v, y_v,
         epochs=epochs,
         batch_size=batch_size,
         model_name=model_name,
@@ -307,7 +358,6 @@ def run_roi_experiments(
     paths = get_output_paths(output_dir)
     figures_dir = paths["figures"]
     class_names = _get_class_names(mode)
-    split_fn = _get_split_fn(split_strategy)
     runs = _get_runs(mode)
 
     metrics_rows = []
@@ -322,7 +372,11 @@ def run_roi_experiments(
             paper_preprocess=paper_preprocess,
         )
         print(f"Selected channels ({len(ch_names)}): {ch_names}")
-        X_train, X_test, y_train, y_test, meta_train, meta_test = split_fn(X, y, metadata)
+        (
+            X_train, X_val, X_test,
+            y_train, y_val, y_test,
+            meta_train, meta_val, meta_test,
+        ) = _split_data(X, y, metadata, split_strategy)
 
         roi_epochs = epochs
         if use_paper_roi_epochs:
@@ -345,6 +399,9 @@ def run_roi_experiments(
                 paper_preprocess=paper_preprocess,
                 use_gan=gan_for_hybrid and model_name == "cnn_lstm_attention",
                 use_class_weights=use_class_weights,
+                X_val=X_val,
+                y_val=y_val,
+                meta_val=meta_val,
             )
             if not metrics:
                 continue
@@ -387,7 +444,6 @@ def run_segment_length_experiment(
         epochs_list = [25, 50]
 
     class_names = _get_class_names(mode)
-    split_fn = _get_split_fn(split_strategy)
     runs = _get_runs(mode)
     rows = []
 
@@ -397,7 +453,11 @@ def run_segment_length_experiment(
             subjects, runs, mode=mode, segment_length=seg_len, roi_name=roi_name,
             paper_input=paper_input, paper_preprocess=paper_preprocess,
         )
-        X_train, X_test, y_train, y_test, meta_train, meta_test = split_fn(X, y, metadata)
+        (
+            X_train, X_val, X_test,
+            y_train, y_val, y_test,
+            meta_train, meta_val, meta_test,
+        ) = _split_data(X, y, metadata, split_strategy)
 
         for n_epochs in epochs_list:
             print(f"  Epochs: {n_epochs}")
@@ -413,6 +473,9 @@ def run_segment_length_experiment(
                 paper_input=paper_input,
                 paper_preprocess=paper_preprocess,
                 use_class_weights=use_class_weights,
+                X_val=X_val,
+                y_val=y_val,
+                meta_val=meta_val,
             )
             if metrics:
                 metrics.update({
@@ -425,6 +488,57 @@ def run_segment_length_experiment(
                 })
                 rows.append(metrics)
 
+    return pd.DataFrame(rows)
+
+
+def run_gan_ablation(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_test: np.ndarray,
+    y_test: np.ndarray,
+    meta_train: pd.DataFrame,
+    meta_test: pd.DataFrame,
+    class_names: list[str],
+    split_strategy: str = "subjectwise_3way",
+    channel_names: list[str] | None = None,
+    roi_name: str = "ROI_6",
+    paper_input: bool = True,
+    paper_preprocess: bool = True,
+    epochs: int = DL_EPOCHS,
+    figures_dir: Path | None = None,
+    X_val: np.ndarray | None = None,
+    y_val: np.ndarray | None = None,
+    meta_val: pd.DataFrame | None = None,
+) -> pd.DataFrame:
+    """
+    GAN ablation: CNN-LSTM without GAN vs with WGAN-GP (train only).
+
+    Test/validation always use real data only.
+    """
+    rows = []
+    for use_gan, label in [(False, "none"), (True, "gan")]:
+        print(f"\n--- GAN ablation: augmentation={label} ---")
+        metrics, _, _, _ = run_single_deep_experiment(
+            X_train, y_train, X_test, y_test,
+            meta_train, meta_test, class_names,
+            model_name="cnn_lstm_attention",
+            epochs=epochs,
+            split_strategy=split_strategy,
+            channel_names=channel_names,
+            roi_name=roi_name,
+            paper_input=paper_input,
+            paper_preprocess=paper_preprocess,
+            use_gan=use_gan,
+            use_class_weights=True,
+            figures_dir=figures_dir if not use_gan else None,
+            X_val=X_val,
+            y_val=y_val,
+            meta_val=meta_val,
+        )
+        if metrics:
+            metrics["augmentation"] = label
+            metrics["model"] = "cnn_lstm_attention"
+            rows.append(metrics)
     return pd.DataFrame(rows)
 
 
@@ -507,6 +621,7 @@ def run_complete_das2025_replication(
     do_segment_experiment: bool = True,
     run_riemannian: bool = True,
     run_gan: bool = False,
+    run_gan_ablation: bool = False,
     max_subjects: int | None = None,
     dl_epochs: int = DL_EPOCHS,
     output_dir: str | Path = DEFAULT_OUTPUT_DIR,
@@ -534,14 +649,18 @@ def run_complete_das2025_replication(
     np.random.seed(RANDOM_STATE)
     set_reproducibility()
 
+    run_gan_ablation_flag = False
     if paper_protocol:
-        mode = "multiclass"
-        split_strategy = "trialwise"
+        mode = "multiclass"  # Mode A — Tables 6/7 (E,F,G,H,I)
+        split_strategy = "subjectwise_3way"  # thesis-grade, no subject leakage
         paper_input = True
         paper_preprocess = True
         use_paper_roi_epochs = True
         run_trialwise_comparison = False
-        run_binary_table8 = True
+        run_binary_table8 = True  # Mode B — binary left vs right
+        run_gan_ablation_flag = True
+    else:
+        run_gan_ablation_flag = False
 
     subjects = get_paper_subjects()
     if max_subjects is not None:
@@ -581,6 +700,8 @@ def run_complete_das2025_replication(
         "run_segment": do_segment_experiment,
         "run_riemannian": run_riemannian,
         "run_gan": run_gan,
+        "run_gan_ablation": run_gan_ablation or run_gan_ablation_flag,
+        "split_ratios": "70/15/15" if split_strategy == "subjectwise_3way" else "legacy",
         "run_binary_table8": run_binary_table8,
         "random_state": RANDOM_STATE,
     }
@@ -625,14 +746,16 @@ def run_complete_das2025_replication(
     }]
     pd.DataFrame(summary_rows).to_csv(out_dir / "dataset_summary.csv", index=False)
 
-    split_fn = _get_split_fn(split_strategy)
-    print(f"\n--- Primary split: {split_strategy} ---")
-    X_train, X_test, y_train, y_test, meta_train, meta_test = split_fn(
-        X, y, metadata
-    )
+    split_fn_label = split_strategy
+    print(f"\n--- Primary split: {split_fn_label} ---")
+    (
+        X_train, X_val, X_test,
+        y_train, y_val, y_test,
+        meta_train, meta_val, meta_test,
+    ) = _split_data(X, y, metadata, split_strategy)
 
     if run_trialwise_comparison and split_strategy != "trialwise":
-        print("\n--- Trial-wise split (comparison) ---")
+        print("\n--- Trial-wise split (non-primary comparison only) ---")
         make_trialwise_split(X, y, metadata)
 
     # --- ML models ---
@@ -688,6 +811,9 @@ def run_complete_das2025_replication(
                 paper_preprocess=paper_preprocess,
                 use_gan=run_gan and model_name == "cnn_lstm_attention",
                 use_class_weights=use_class_weights,
+                X_val=X_val,
+                y_val=y_val,
+                meta_val=meta_val,
             )
             if metrics:
                 metrics["split_strategy"] = split_strategy
@@ -780,8 +906,30 @@ def run_complete_das2025_replication(
             riem_metrics.to_csv(out_dir / "riemannian_results.csv", index=False)
             results["riemannian"] = riem_metrics
 
-    # --- GAN ---
-    if run_gan:
+    # --- GAN ablation (WGAN-GP train-only; test real only) ---
+    if run_gan_ablation or run_gan_ablation_flag:
+        print("\n" + "=" * 70)
+        print("GAN ABLATION (CNN-LSTM: none vs WGAN-GP)")
+        print("=" * 70)
+        gan_abl = run_gan_ablation(
+            X_train, y_train, X_test, y_test,
+            meta_train, meta_test, class_names,
+            split_strategy=split_strategy,
+            channel_names=roi_channels,
+            roi_name="ROI_6",
+            paper_input=paper_input,
+            paper_preprocess=paper_preprocess,
+            epochs=primary_dl_epochs,
+            figures_dir=figures_dir,
+            X_val=X_val,
+            y_val=y_val,
+            meta_val=meta_val,
+        )
+        gan_abl.to_csv(out_dir / "gan_ablation_results.csv", index=False)
+        results["gan_ablation"] = gan_abl
+
+    # --- Legacy GAN comparison ---
+    if run_gan and not (run_gan_ablation or run_gan_ablation_flag):
         print("\n" + "=" * 70)
         print("GAN AUGMENTATION COMPARISON")
         print("=" * 70)
@@ -868,7 +1016,10 @@ if __name__ == "__main__":
     )
     parser.add_argument("--mode", default="binary", choices=["binary", "multiclass"])
     parser.add_argument(
-        "--split", default="subjectwise", choices=["subjectwise", "trialwise"]
+        "--split",
+        default="subjectwise_3way",
+        choices=["subjectwise", "subjectwise_3way", "trialwise"],
+        help="subjectwise_3way=70/15/15 by subject (thesis default)",
     )
     parser.add_argument("--max-subjects", type=int, default=None)
     parser.add_argument("--epochs", type=int, default=DL_EPOCHS)
@@ -916,6 +1067,7 @@ if __name__ == "__main__":
         mode=args.mode,
         split_strategy="trialwise" if args.trialwise else args.split,
         run_gan=args.gan,
+        run_gan_ablation=args.gan_ablation,
         do_roi_experiments=not args.no_roi,
         do_segment_experiment=not args.no_segment,
         max_subjects=max_subj,

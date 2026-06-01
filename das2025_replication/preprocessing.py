@@ -4,6 +4,7 @@ Data splitting, normalization, ICA, and CSP spatial filtering.
 
 from __future__ import annotations
 
+import warnings
 from typing import Literal
 
 import mne
@@ -12,19 +13,102 @@ import pandas as pd
 from sklearn.model_selection import GroupKFold, GroupShuffleSplit, train_test_split
 from sklearn.preprocessing import StandardScaler
 
-from .config import RANDOM_STATE, TEST_SIZE
+from .config import (
+    LEGACY_TEST_SIZE,
+    RANDOM_STATE,
+    TEST_SIZE,
+    TRAIN_SIZE,
+    VAL_SIZE,
+)
 
-SplitStrategy = Literal["trialwise", "subjectwise"]
+SplitStrategy = Literal["trialwise", "subjectwise", "subjectwise_3way"]
+
+
+def make_subjectwise_train_val_test_split(
+    X: np.ndarray,
+    y: np.ndarray,
+    metadata: pd.DataFrame,
+    train_ratio: float = TRAIN_SIZE,
+    val_ratio: float = VAL_SIZE,
+    test_ratio: float = TEST_SIZE,
+    random_state: int = RANDOM_STATE,
+) -> tuple[np.ndarray, ...]:
+    """
+    Subject-wise 70/15/15 split (train / validation / test).
+
+    No subject appears in more than one partition — recommended for thesis evaluation.
+    """
+    assert abs(train_ratio + val_ratio + test_ratio - 1.0) < 1e-6
+    groups = metadata["subject"].values
+    idx = np.arange(len(y))
+
+    gss_test = GroupShuffleSplit(
+        n_splits=1, test_size=test_ratio, random_state=random_state
+    )
+    trainval_idx, test_idx = next(gss_test.split(X, y, groups=groups))
+
+    groups_tv = metadata.iloc[trainval_idx]["subject"].values
+    val_share = val_ratio / (train_ratio + val_ratio)
+    gss_val = GroupShuffleSplit(
+        n_splits=1, test_size=val_share, random_state=random_state + 1
+    )
+    tr_rel, val_rel = next(
+        gss_val.split(X[trainval_idx], y[trainval_idx], groups=groups_tv)
+    )
+    train_idx = trainval_idx[tr_rel]
+    val_idx = trainval_idx[val_rel]
+
+    _assert_no_subject_leakage(metadata, train_idx, val_idx, test_idx)
+
+    X_train, X_val, X_test = X[train_idx], X[val_idx], X[test_idx]
+    y_train, y_val, y_test = y[train_idx], y[val_idx], y[test_idx]
+    meta_train = metadata.iloc[train_idx].reset_index(drop=True)
+    meta_val = metadata.iloc[val_idx].reset_index(drop=True)
+    meta_test = metadata.iloc[test_idx].reset_index(drop=True)
+
+    print("\n--- Split summary (subject-wise 70/15/15) ---")
+    print(
+        f"Train: {len(y_train)} trials, {meta_train['subject'].nunique()} subjects"
+    )
+    print(f"Val:   {len(y_val)} trials, {meta_val['subject'].nunique()} subjects")
+    print(f"Test:  {len(y_test)} trials, {meta_test['subject'].nunique()} subjects")
+    print("Train classes:", dict(zip(*np.unique(y_train, return_counts=True))))
+    print("Test classes:", dict(zip(*np.unique(y_test, return_counts=True))))
+    return (
+        X_train, X_val, X_test,
+        y_train, y_val, y_test,
+        meta_train, meta_val, meta_test,
+    )
+
+
+def _assert_no_subject_leakage(
+    metadata: pd.DataFrame,
+    train_idx: np.ndarray,
+    val_idx: np.ndarray,
+    test_idx: np.ndarray,
+) -> None:
+    tr = set(metadata.iloc[train_idx]["subject"].unique())
+    va = set(metadata.iloc[val_idx]["subject"].unique())
+    te = set(metadata.iloc[test_idx]["subject"].unique())
+    assert not (tr & va), f"Train/val subject leak: {tr & va}"
+    assert not (tr & te), f"Train/test subject leak: {tr & te}"
+    assert not (va & te), f"Val/test subject leak: {va & te}"
 
 
 def make_trialwise_split(
     X: np.ndarray,
     y: np.ndarray,
     metadata: pd.DataFrame,
-    test_size: float = TEST_SIZE,
+    test_size: float = LEGACY_TEST_SIZE,
     random_state: int = RANDOM_STATE,
 ) -> tuple[np.ndarray, ...]:
-    """Stratified random split by trial (may leak subject identity)."""
+    """Stratified random split by trial — may leak subjects; not for primary thesis metrics."""
+    warnings.warn(
+        "Trial-wise split may inflate accuracy (same subject in train and test). "
+        "Use subjectwise_3way for thesis evaluation.",
+        UserWarning,
+        stacklevel=2,
+    )
     idx = np.arange(len(y))
     train_idx, test_idx = train_test_split(
         idx,
@@ -41,7 +125,7 @@ def make_subjectwise_split(
     X: np.ndarray,
     y: np.ndarray,
     metadata: pd.DataFrame,
-    test_size: float = TEST_SIZE,
+    test_size: float = LEGACY_TEST_SIZE,
     random_state: int = RANDOM_STATE,
 ) -> tuple[np.ndarray, ...]:
     """Split by subject — no subject in both train and test."""

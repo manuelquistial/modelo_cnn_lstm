@@ -42,25 +42,49 @@ ROI_DEFINITIONS: dict[str, list[str]] = {
     ],
 }
 
-# Class names
-BINARY_CLASS_NAMES = ["left_hand", "right_hand"]
-MULTICLASS_CLASS_NAMES = [
-    "left_fist", "right_fist", "both_fists", "both_feet", "rest",
-]
-
-# Binary label mapping
-BINARY_LABEL_MAP = {"left_hand": 0, "right_hand": 1}
-MULTICLASS_LABEL_MAP = {
-    "left_fist": 0,
-    "right_fist": 1,
-    "both_fists": 2,
-    "both_feet": 3,
-    "rest": 4,
+# Class names — Das et al. Table 7 labels (Mode A: 5-class)
+PAPER_CLASS_NAMES = ["E", "F", "G", "H", "I"]
+PAPER_CLASS_DESCRIPTIONS = {
+    "E": "imagined_left_fist",      # runs 4,8,12 T1
+    "F": "imagined_both_fists",     # runs 6,10,14 T1
+    "G": "imagined_right_fist",     # runs 4,8,12 T2
+    "H": "imagined_both_feet",      # runs 6,10,14 T2
+    "I": "baseline_rest",           # T0 all runs
 }
 
-# Reproducibility
+# Mode B: binary left vs right (runs 4, 8, 12 only)
+BINARY_CLASS_NAMES = ["left_hand", "right_hand"]
+
+# Mode A multiclass (alias internal names → paper labels E–I)
+MULTICLASS_CLASS_NAMES = PAPER_CLASS_NAMES
+MULTICLASS_INTERNAL_NAMES = [
+    "left_fist", "both_fists", "right_fist", "both_feet", "rest",
+]
+
+# Label maps (PhysioNet T0/T1/T2 × run → class index)
+BINARY_LABEL_MAP = {"left_hand": 0, "right_hand": 1}
+MULTICLASS_LABEL_MAP = {
+    "left_fist": 0,    # E — runs 4,8,12 T1
+    "both_fists": 1,   # F — runs 6,10,14 T1
+    "right_fist": 2,   # G — runs 4,8,12 T2
+    "both_feet": 3,    # H — runs 6,10,14 T2
+    "rest": 4,         # I — T0
+}
+PAPER_LABEL_FROM_INTERNAL = {
+    "left_fist": "E",
+    "both_fists": "F",
+    "right_fist": "G",
+    "both_feet": "H",
+    "rest": "I",
+}
+
+# Reproducibility & splits (thesis-grade: by subject, no trial leakage)
 RANDOM_STATE = 42
-TEST_SIZE = 0.2
+TEST_SIZE = 0.15
+VAL_SIZE = 0.15
+TRAIN_SIZE = 0.70
+# Legacy 80/20 two-way split when three_way_split=False
+LEGACY_TEST_SIZE = 0.2
 
 # Deep learning defaults
 DL_EPOCHS = 50

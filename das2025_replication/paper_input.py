@@ -36,9 +36,9 @@ ROI_TRAINING_EPOCHS_PAPER: dict[str, int] = {
 PAPER_MULTICLASS_NAMES = ["E", "F", "G", "H", "I"]
 PAPER_LABEL_TO_CLASS = {
     0: "E",  # left fist (runs 4,8,12 T1)
-    1: "F",  # both fists (runs 6,10,14 T1) — paper maps T1 both fists to F
-    2: "G",  # right fist
-    3: "H",  # both feet
+    1: "F",  # both fists (runs 6,10,14 T1)
+    2: "G",  # right fist (runs 4,8,12 T2)
+    3: "H",  # both feet (runs 6,10,14 T2)
     4: "I",  # rest T0
 }
 

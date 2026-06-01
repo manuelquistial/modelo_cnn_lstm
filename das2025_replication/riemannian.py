@@ -23,6 +23,31 @@ except ImportError:
     HAS_PYRIEMANN = False
 
 
+def _tangent_space_dim(n_channels: int) -> int:
+    """Symmetric SPD tangent-space feature count for n_channels x n_channels covariances."""
+    return n_channels * (n_channels + 1) // 2
+
+
+def _fgmdm_applicable(n_channels: int, n_classes: int) -> tuple[bool, str]:
+    """
+    FgMDM uses FGDA with LDA (n_components = n_classes - 1).
+
+    Requires tangent-space dimension >= n_classes - 1. With paper_input (2 channels)
+    tangent dim = 3, so FgMDM fails for 5-class problems (needs 4 components).
+    """
+    ts_dim = _tangent_space_dim(n_channels)
+    lda_components = n_classes - 1
+    if lda_components <= 0:
+        return False, "FgMDM skipped: need at least 2 classes."
+    if lda_components > ts_dim:
+        return False, (
+            f"FgMDM skipped: tangent dim {ts_dim} ({n_channels} ch) < "
+            f"n_classes-1 ({lda_components}). "
+            "Use full ROI channels (not paper_input 640×2) or binary mode."
+        )
+    return True, ""
+
+
 def run_riemannian_baselines(
     X_train: np.ndarray,
     y_train: np.ndarray,
@@ -32,7 +57,7 @@ def run_riemannian_baselines(
     class_names: list[str],
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
-    Riemannian classifiers: TangentSpace+LR, MDM, FgMDM.
+    Riemannian classifiers: TangentSpace+LR, MDM, FgMDM (when mathematically valid).
 
     X shape: (n_trials, n_channels, n_samples)
     """
@@ -43,10 +68,19 @@ def run_riemannian_baselines(
         )
         return pd.DataFrame(), pd.DataFrame()
 
+    n_channels = X_train.shape[1]
+    n_classes = len(np.unique(y_train))
+    print(
+        f"  Riemannian input: {X_train.shape[0]} train trials, "
+        f"{n_channels} channels, {n_classes} classes "
+        f"(tangent dim={_tangent_space_dim(n_channels)})",
+        flush=True,
+    )
+
     metrics_rows = []
     pred_dfs = []
 
-    models = {
+    models: dict[str, Pipeline] = {
         "TangentSpace_LR": Pipeline([
             ("cov", Covariances(estimator="lwf")),
             ("ts", TangentSpace()),
@@ -56,14 +90,19 @@ def run_riemannian_baselines(
             ("cov", Covariances(estimator="lwf")),
             ("mdm", MDM()),
         ]),
-        "FgMDM": Pipeline([
-            ("cov", Covariances(estimator="lwf")),
-            ("fgmdm", FgMDM()),
-        ]),
     }
 
+    ok_fgmdm, fgmdm_reason = _fgmdm_applicable(n_channels, n_classes)
+    if ok_fgmdm:
+        models["FgMDM"] = Pipeline([
+            ("cov", Covariances(estimator="lwf")),
+            ("fgmdm", FgMDM()),
+        ])
+    else:
+        print(f"  Note: {fgmdm_reason}", flush=True)
+
     for name, model in models.items():
-        print(f"  Training Riemannian model: {name}...")
+        print(f"  Training Riemannian model: {name}...", flush=True)
         try:
             model.fit(X_train, y_train)
             y_pred = model.predict(X_test)

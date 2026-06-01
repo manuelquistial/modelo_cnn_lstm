@@ -410,8 +410,8 @@ def run_complete_das2025_replication(
     run_multiclass: bool = False,
     run_ml: bool = True,
     run_deep: bool = True,
-    run_roi_experiments: bool = True,
-    run_segment_length_experiment: bool = True,
+    do_roi_experiments: bool = True,
+    do_segment_experiment: bool = True,
     run_riemannian: bool = True,
     run_gan: bool = False,
     max_subjects: int | None = None,
@@ -462,8 +462,8 @@ def run_complete_das2025_replication(
         "use_paper_roi_epochs": use_paper_roi_epochs,
         "run_ml": run_ml,
         "run_deep": run_deep,
-        "run_roi": run_roi_experiments,
-        "run_segment": run_segment_length_experiment,
+        "run_roi": do_roi_experiments,
+        "run_segment": do_segment_experiment,
         "run_riemannian": run_riemannian,
         "run_gan": run_gan,
         "random_state": RANDOM_STATE,
@@ -482,7 +482,7 @@ def run_complete_das2025_replication(
     print(f"  paper_roi_epochs:  {use_paper_roi_epochs}")
     print(f"  segment_length:    {seg_len}s")
     print(f"  dl_epochs:         {dl_epochs}")
-    print(f"  run_roi:           {run_roi_experiments}")
+    print(f"  run_roi:           {do_roi_experiments}")
     print("=" * 70)
 
     # --- Primary dataset (ROI_6, 5s) ---
@@ -598,7 +598,7 @@ def run_complete_das2025_replication(
             )
 
     # --- ROI experiments ---
-    if run_roi_experiments:
+    if do_roi_experiments:
         print("\n" + "=" * 70)
         print("ROI EXPERIMENTS (1-6)")
         print("=" * 70)
@@ -614,7 +614,7 @@ def run_complete_das2025_replication(
             all_preds.append(roi_preds)
 
     # --- Segment length experiment ---
-    if run_segment_length_experiment:
+    if do_segment_experiment:
         print("\n" + "=" * 70)
         print("SEGMENT LENGTH EXPERIMENT")
         print("=" * 70)
@@ -668,8 +668,8 @@ def run_complete_das2025_replication(
             run_multiclass=False,
             run_ml=run_ml,
             run_deep=run_deep,
-            run_roi_experiments=False,
-            run_segment_length_experiment=False,
+            do_roi_experiments=False,
+            do_segment_experiment=False,
             run_riemannian=run_riemannian,
             run_gan=False,
             max_subjects=max_subjects,
@@ -741,8 +741,8 @@ if __name__ == "__main__":
         mode=args.mode,
         split_strategy="trialwise" if args.trialwise else args.split,
         run_gan=args.gan,
-        run_roi_experiments=not args.no_roi,
-        run_segment_length_experiment=not args.no_segment,
+        do_roi_experiments=not args.no_roi,
+        do_segment_experiment=not args.no_segment,
         max_subjects=max_subj,
         dl_epochs=args.epochs,
         output_dir=args.output_dir,

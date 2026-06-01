@@ -28,7 +28,7 @@ if __name__ == "__main__":
         max_subjects=5 if args.quick else args.max_subjects,
         dl_epochs=args.epochs,
         run_gan=args.gan,
-        run_roi_experiments=not args.quick,
-        run_segment_length_experiment=not args.quick,
+        do_roi_experiments=not args.quick,
+        do_segment_experiment=not args.quick,
         output_dir=args.output_dir,
     )

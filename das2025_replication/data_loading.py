@@ -32,6 +32,11 @@ EVENT_CODE_T2 = 3
 
 
 def _standardize_channel_names(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
+    """
+    PhysioNet EDF uses names like 'Fc3.' — map to 'FC3' per MNE eegbci convention.
+    """
+    eegbci.standardize(raw)
+    raw.pick(picks="eeg")
     montage = mne.channels.make_standard_montage("standard_1005")
     raw.set_montage(montage, on_missing="ignore")
     return raw

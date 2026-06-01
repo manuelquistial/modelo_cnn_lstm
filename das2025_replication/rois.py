@@ -9,6 +9,16 @@ import numpy as np
 from .config import ROI_DEFINITIONS
 
 
+def normalize_channel_name(name: str) -> str:
+    """Match MNE eegbci.standardize() naming (Fc3. -> FC3, Cz.. -> Cz)."""
+    std = name.strip(".").upper()
+    if std.endswith("Z") and len(std) > 1:
+        std = std[:-1] + "z"
+    if std.startswith("FP") and len(std) > 2:
+        std = "Fp" + std[2:]
+    return std
+
+
 def get_roi_channel_names(roi_name: str) -> list[str]:
     """Return unique channel names for a ROI (no duplicates)."""
     if roi_name not in ROI_DEFINITIONS:
@@ -48,15 +58,17 @@ def select_roi(
         raise ValueError(f"X must be 3D, got shape {X.shape}")
 
     roi_channels = get_roi_channel_names(roi_name)
-    name_to_idx = {cn.upper(): i for i, cn in enumerate(channel_names)}
+    name_to_idx = {
+        normalize_channel_name(cn): i for i, cn in enumerate(channel_names)
+    }
 
     indices: list[int] = []
     selected: list[str] = []
     for ch in roi_channels:
-        key = ch.upper()
+        key = normalize_channel_name(ch)
         if key not in name_to_idx:
             raise AssertionError(
-                f"ROI channel '{ch}' not found in dataset channels. "
+                f"ROI channel '{ch}' (normalized: '{key}') not found. "
                 f"Available (sample): {channel_names[:15]}..."
             )
         idx = name_to_idx[key]

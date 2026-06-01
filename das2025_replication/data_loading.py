@@ -180,6 +180,7 @@ def extract_epochs_for_subject(
     tmin: float = 0.0,
     l_freq: float = DEFAULT_L_FREQ,
     h_freq: float = DEFAULT_H_FREQ,
+    use_ica: bool = False,
     verbose: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, pd.DataFrame, list[str]]:
     """
@@ -200,6 +201,13 @@ def extract_epochs_for_subject(
     for run_id in runs:
         raw = load_physionet_subject(subject_id, [run_id], verbose=verbose)
         raw.filter(l_freq, h_freq, fir_design="firwin", verbose=verbose)
+        if use_ica:
+            from .preprocessing import apply_ica_artifact_removal
+
+            try:
+                raw = apply_ica_artifact_removal(raw, auto_reject=True)
+            except Exception as exc:
+                warnings.warn(f"ICA skipped subject {subject_id} run {run_id}: {exc}")
         sfreq = raw.info["sfreq"]
         tmax = tmin + segment_length - (1.0 / sfreq)
 
@@ -286,10 +294,15 @@ def build_dataset(
     l_freq: float = DEFAULT_L_FREQ,
     h_freq: float = DEFAULT_H_FREQ,
     paper_input: bool = False,
+    paper_preprocess: bool = False,
+    use_ica: bool = False,
     verbose: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, pd.DataFrame, list[str]]:
     """Build full dataset across subjects with ROI channel selection."""
     from .rois import select_roi
+
+    if paper_preprocess:
+        use_ica = True
 
     if subjects is None:
         subjects = get_paper_subjects()
@@ -305,7 +318,7 @@ def build_dataset(
         try:
             X_s, y_s, meta_s, ch_names = extract_epochs_for_subject(
                 subj, runs, mode=mode, segment_length=segment_length,
-                l_freq=l_freq, h_freq=h_freq, verbose=False,
+                l_freq=l_freq, h_freq=h_freq, use_ica=use_ica, verbose=False,
             )
         except Exception as exc:
             warnings.warn(f"Skipping subject {subj}: {exc}")
@@ -326,7 +339,7 @@ def build_dataset(
     metadata = pd.concat(meta_list, ignore_index=True)
     X, roi_channel_names = select_roi(X, channel_names, roi_name)
 
-    if paper_input:
+    if paper_input and not paper_preprocess:
         from .paper_input import to_paper_input_shape
 
         X, pair = to_paper_input_shape(X, roi_channel_names, roi_name)
@@ -336,6 +349,11 @@ def build_dataset(
                 f"  Paper input: contralateral pair {pair}, shape {X.shape} "
                 f"(trials, samples, 2)"
             )
+    elif paper_input and paper_preprocess and verbose:
+        print(
+            f"  Paper input deferred: ROI {roi_name} {X.shape} "
+            f"(ICA+CSP post-split → 640×2)"
+        )
 
     assert len(X) == len(y) == len(metadata)
     return X, y, metadata, roi_channel_names
@@ -379,8 +397,15 @@ def print_dataset_summary(
     print(f"y shape:          {y.shape}")
     print(f"N trials:         {len(y)}")
     print(f"N subjects:       {metadata['subject'].nunique()}")
-    print(f"N channels:       {X.shape[1] if X.ndim == 3 else 'N/A'}")
-    print(f"N samples/trial:  {X.shape[2] if X.ndim == 3 else 'N/A'}")
+    if X.ndim == 3 and X.shape[-1] <= 8 and X.shape[1] > X.shape[-1]:
+        print(f"N channels:       {X.shape[-1]}")
+        print(f"N samples/trial:  {X.shape[1]}")
+    elif X.ndim == 3:
+        print(f"N channels:       {X.shape[1]}")
+        print(f"N samples/trial:  {X.shape[2]}")
+    else:
+        print(f"N channels:       N/A")
+        print(f"N samples/trial:  N/A")
     print("\nClass distribution:")
     for u, c in zip(*np.unique(y, return_counts=True)):
         name = class_names[int(u)] if int(u) < len(class_names) else str(u)

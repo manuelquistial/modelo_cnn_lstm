@@ -12,7 +12,14 @@ Comparación entre el artículo (*Scientific Reports*, 2025, DOI 10.1038/s41598-
 | 6 ROIs (Tabla 3) | ✅ | ROI_5 sin duplicar canales (el paper repite CP1–CP4) |
 | Band-pass 0.5–50 Hz | ✅ | En epoching |
 | Normalización z-score | ✅ | Post-split en train |
-| 5 clasificadores ML + NB | ⚠️ | Falta **Decision Tree** (Fig. 10 del paper) |
+| **ICA** artefactos | ✅ | `paper_preprocess` / `--paper-protocol` |
+| **CSP** filtrado espacial | ✅ | Post-split train; ML + DL (`paper_preprocessing.py`) |
+| Split train/test | ⚠️ | Paper no documenta; `--paper-protocol` usa **trial-wise** |
+| Épocas 5 s → matriz 640×2 | ✅ | Epoch 5 s + center-crop 640 muestras |
+| Épocas por ROI (Tabla 6) | ✅ | ROI_6 = 29 en bloque principal |
+| Tabla 8 binario 1s/5s | ✅ | `--paper-protocol` → `binary_table8_results.csv` |
+| GAN WGAN-GP | ⚠️ | `PAPER=1 GAN=1` o `--gan` |
+| Pesos de clase DL | ✅ | Balanceados con `--paper-protocol` |
 | CNN, LSTM, híbrido CNN+LSTM+Attention | ⚠️ | Arquitectura CNN no detallada en Tabla 5; nuestra es plausible |
 | Métricas Acc, Prec, Rec, F1, MCC | ✅ | + Cohen κ extra (no en paper) |
 | GAN WGAN-GP, 100 épocas, batch 64 | ⚠️ | Implementado; **FID** no implementado |
@@ -120,17 +127,17 @@ Comparación entre el artículo (*Scientific Reports*, 2025, DOI 10.1038/s41598-
 
 ## Cómo ejecutar modo más fiel al paper
 
-```python
-from das2025_replication.run_experiments import run_complete_das2025_replication
-
-run_complete_das2025_replication(
-    mode="multiclass",           # Tablas 6–7 (5 clases)
-    split_strategy="trialwise",  # más parecido al paper (no documentado)
-    paper_input=True,            # forma (640, 2) par contralateral
-    segment_length=4.0,          # 640 muestras @ 160 Hz
-    dl_epochs=50,
-)
+```bash
+python -m das2025_replication.run_experiments \
+  --paper-protocol \
+  --epochs 50 \
+  --max-subjects 15 \
+  --no-viz
 ```
+
+Or: `MAX_SUBJECTS=15 PAPER=1 ./scripts/paperspace_run.sh`
+
+Optional GAN: `GAN=1 PAPER=1 ...`
 
 Para binario mano izquierda/derecha (texto resultados + Fig. 8–9):
 

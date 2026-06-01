@@ -56,10 +56,23 @@ git clone https://<TU_TOKEN>@github.com/manuelquistial/modelo_cnn_lstm.git
 QUICK=1 ./scripts/paperspace_run.sh
 ```
 
-## 4. Réplica cercana al paper (multiclass, trial-wise, entrada 640×2)
+## 4. Réplica protocolo paper (Tablas 6–8)
 
 ```bash
-PAPER=1 EPOCHS=50 ./scripts/paperspace_run.sh
+MAX_SUBJECTS=15 PAPER=1 EPOCHS=50 ./scripts/paperspace_run.sh
+```
+
+`PAPER=1` activa `--paper-protocol`:
+- Multiclase 5 clases (E–I), split **trial-wise**
+- Épocas **5 s** → recorte central a **640×2**
+- **ICA** + **CSP** + normalización z-score
+- Épocas por ROI (Tabla 6), experimento binario Tabla 8
+- Pesos de clase balanceados en DL
+
+Con GAN (paper Sec. GAN):
+
+```bash
+MAX_SUBJECTS=15 PAPER=1 GAN=1 ./scripts/paperspace_run.sh
 ```
 
 ## 5. Experimento completo (103 sujetos — varias horas / días)
@@ -85,7 +98,7 @@ Con GAN (muy lento):
 | `OUTPUT_DIR` | `outputs/das2025_replication` | Salida CSV y figuras |
 | `MNE_DATA` | `./mne_data` | Cache descarga PhysioNet |
 | `QUICK` | `0` | `1` = smoke test |
-| `PAPER` | `0` | `1` = flags paper-input + trialwise |
+| `GAN=1` | `0` | Con `PAPER=1`, activa augmentación GAN en híbrido |
 
 ## Persistencia en Paperspace
 

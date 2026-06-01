@@ -171,30 +171,52 @@ def apply_sklearn_scaler(
 
 def apply_ica_artifact_removal(
     raw: mne.io.BaseRaw,
-    n_components: int | None = None,
+    n_components: float | int | None = 0.99,
     random_state: int = RANDOM_STATE,
-    auto_reject: bool = False,
+    auto_reject: bool = True,
 ) -> mne.io.BaseRaw:
     """
-    Optional ICA artifact removal on Raw data.
+    ICA artifact removal on Raw data (Das et al. 2025, Eq. 4).
 
-    Disabled by default (auto_reject=False) because automatic component
-    rejection is unreliable without manual inspection.
+    When ``auto_reject=True``, excludes up to two components with highest
+    kurtosis (muscle/artifact proxy) when EOG channels are unavailable.
     """
     raw_ica = raw.copy()
+    n_comp = n_components
+    if n_comp is None:
+        n_comp = min(int(0.99 * len(mne.pick_types(raw_ica.info, eeg=True))), 20)
     ica = mne.preprocessing.ICA(
-        n_components=n_components,
+        n_components=n_comp,
         random_state=random_state,
         max_iter="auto",
     )
     ica.fit(raw_ica)
     if auto_reject:
-        # Placeholder: EOG correlation-based rejection if EOG channels exist
+        excluded: list[int] = []
         try:
-            eog_indices, _ = ica.find_bads_eog(raw_ica)
-            ica.exclude = eog_indices
+            eog_indices, _ = ica.find_bads_eog(raw_ica, verbose=False)
+            excluded.extend(eog_indices)
         except Exception:
             pass
+        if not excluded:
+            try:
+                muscle, _ = ica.find_bads_muscle(raw_ica, verbose=False)
+                excluded.extend(muscle[:2])
+            except Exception:
+                pass
+        if not excluded and hasattr(ica, "get_sources"):
+            try:
+                sources = ica.get_sources(raw_ica).get_data()
+                kurt = np.mean(
+                    (sources - sources.mean(axis=1, keepdims=True)) ** 4,
+                    axis=1,
+                ) / (
+                    np.var(sources, axis=1) ** 2 + 1e-12
+                )
+                excluded = np.argsort(kurt)[-2:].tolist()
+            except Exception:
+                pass
+        ica.exclude = list(dict.fromkeys(excluded))[:2]
     ica.apply(raw_ica)
     return raw_ica
 

@@ -35,7 +35,7 @@ if [[ "${QUICK:-0}" == "1" ]]; then
 fi
 
 # Paper-like protocol: PAPER=1 ./scripts/paperspace_run.sh
-# (multiclass, trial-wise split, 640x2 input, per-ROI epochs from Table 6)
+# Full Das et al. (2025): multiclass, trial-wise, 5s→640×2, ICA+CSP, Table 6 epochs, Table 8 binary
 if [[ "${PAPER:-0}" == "1" ]]; then
   MODE="multiclass"
   SPLIT="trialwise"
@@ -45,16 +45,17 @@ if [[ "${PAPER:-0}" == "1" ]]; then
     --split "$SPLIT"
     --epochs "$EPOCHS"
     --output-dir "$OUTPUT_DIR"
-    --paper-input
-    --paper-roi-epochs
+    --paper-protocol
   )
+  if [[ "${GAN:-0}" == "1" ]]; then
+    ARGS+=(--gan)
+  fi
   if [[ -n "$MAX_SUBJECTS" ]]; then
     ARGS+=(--max-subjects "$MAX_SUBJECTS")
   else
     echo "WARNING: PAPER=1 without MAX_SUBJECTS — all 103 subjects + 6 ROIs (many hours)."
     echo "         Suggested: MAX_SUBJECTS=15 PAPER=1 ./scripts/paperspace_run.sh"
   fi
-  # Skip slow t-SNE during long paper runs unless VIZ=1
   if [[ "${VIZ:-0}" != "1" ]]; then
     ARGS+=(--no-viz)
   fi

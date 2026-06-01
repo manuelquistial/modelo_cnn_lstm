@@ -47,8 +47,13 @@ PAPER_MATRIX_SAMPLES = 640  # 4 s @ 160 Hz
 PAPER_MATRIX_CHANNELS = 2
 
 
-def get_paper_segment_length(use_640_samples: bool = True) -> float:
-    """Segment length matching 640-sample matrix (4 s) or 5 s epoch text."""
+def get_paper_segment_length(use_640_samples: bool = False) -> float:
+    """
+    Epoch duration for PhysioNet epoching.
+
+    Paper text: 5 s epochs (Sec. 3). Matrix size 640×2 → center-crop 5 s to 640 samples
+    in ``to_paper_input_shape`` (4 s @ 160 Hz).
+    """
     return PAPER_MATRIX_SAMPLES / SFREQ if use_640_samples else 5.0
 
 

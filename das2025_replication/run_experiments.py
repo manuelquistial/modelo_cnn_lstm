@@ -51,11 +51,16 @@ from .models_ml import train_evaluate_ml_models
 from .preprocessing import (
     apply_channelwise_standardizer,
     apply_sklearn_scaler,
+    extract_csp_features,
     fit_channelwise_standardizer,
     fit_sklearn_scaler,
     make_subjectwise_split,
     make_trialwise_split,
     make_validation_split_from_train,
+)
+from .paper_preprocessing import (
+    augment_train_with_gan_if_enabled,
+    prepare_paper_dl_tensors,
 )
 from .riemannian import run_riemannian_baselines
 from .rois import list_all_rois
@@ -88,36 +93,77 @@ def _get_runs(mode: str) -> list[int]:
     return BINARY_RUNS if mode == "binary" else MULTICLASS_RUNS
 
 
+def _compute_balanced_class_weights(y: np.ndarray) -> dict[int, float]:
+    from sklearn.utils.class_weight import compute_class_weight
+
+    classes = np.unique(y)
+    weights = compute_class_weight("balanced", classes=classes, y=y)
+    return {int(c): float(w) for c, w in zip(classes, weights)}
+
+
+def _resolve_primary_dl_epochs(
+    dl_epochs: int,
+    roi_name: str,
+    use_paper_roi_epochs: bool,
+) -> int:
+    if use_paper_roi_epochs:
+        from .paper_input import ROI_TRAINING_EPOCHS_PAPER
+
+        return ROI_TRAINING_EPOCHS_PAPER.get(roi_name, dl_epochs)
+    return dl_epochs
+
+
 def _prepare_dl_data(
     X_train: np.ndarray,
     X_test: np.ndarray,
     subjectwise_val: bool = True,
     meta_train: pd.DataFrame | None = None,
     y_train: np.ndarray | None = None,
+    *,
+    channel_names: list[str] | None = None,
+    roi_name: str = "ROI_6",
+    paper_input: bool = False,
+    paper_preprocess: bool = False,
+    use_gan: bool = False,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Convert to DL format and normalize using train statistics only."""
-    X_tr = prepare_deep_learning_input(X_train)
-    X_te = prepare_deep_learning_input(X_test)
+    """Convert to DL format, paper CSP/640×2 if requested, normalize on train only."""
+    if y_train is None:
+        raise ValueError("y_train required for validation split")
+
+    if paper_preprocess:
+        X_tr, X_te, _ = prepare_paper_dl_tensors(
+            X_train,
+            y_train,
+            X_test,
+            channel_names or [],
+            roi_name,
+            paper_input=paper_input,
+            paper_preprocess=True,
+        )
+    else:
+        X_tr = prepare_deep_learning_input(X_train)
+        X_te = prepare_deep_learning_input(X_test)
+
     mean, std = fit_channelwise_standardizer(X_tr)
     X_tr = apply_channelwise_standardizer(X_tr, mean, std)
     X_te = apply_channelwise_standardizer(X_te, mean, std)
 
-    if meta_train is not None and y_train is not None:
+    if meta_train is not None:
         X_fit, X_val, y_fit, y_val, _, _ = make_validation_split_from_train(
             X_tr, y_train, meta_train, subjectwise=subjectwise_val
         )
-        return X_fit, X_val, X_te, y_fit, y_val, X_te
+    else:
+        from sklearn.model_selection import train_test_split
 
-    # Simple stratified val split on normalized train
-    from sklearn.model_selection import train_test_split
+        idx = np.arange(len(y_train))
+        tr_i, val_i = train_test_split(
+            idx, test_size=0.15, stratify=y_train, random_state=RANDOM_STATE
+        )
+        X_fit, X_val = X_tr[tr_i], X_tr[val_i]
+        y_fit, y_val = y_train[tr_i], y_train[val_i]
 
-    if y_train is None:
-        raise ValueError("y_train required for validation split")
-    idx = np.arange(len(y_train))
-    tr_i, val_i = train_test_split(
-        idx, test_size=0.15, stratify=y_train, random_state=RANDOM_STATE
-    )
-    return X_tr[tr_i], X_tr[val_i], X_te, y_train[tr_i], y_train[val_i], X_te
+    X_fit, y_fit = augment_train_with_gan_if_enabled(X_fit, y_fit, use_gan)
+    return X_fit, X_val, X_te, y_fit, y_val, X_te
 
 
 def run_single_deep_experiment(
@@ -134,6 +180,12 @@ def run_single_deep_experiment(
     split_strategy: str = "subjectwise",
     output_dir: Path | None = None,
     figures_dir: Path | None = None,
+    channel_names: list[str] | None = None,
+    roi_name: str = "ROI_6",
+    paper_input: bool = False,
+    paper_preprocess: bool = False,
+    use_gan: bool = False,
+    use_class_weights: bool = False,
 ) -> tuple[dict, pd.DataFrame, dict, Any]:
     """Train and evaluate one deep model."""
     if not HAS_TF:
@@ -143,7 +195,16 @@ def run_single_deep_experiment(
     set_reproducibility()
     subjectwise_val = split_strategy == "subjectwise"
     X_fit, X_val, X_te, y_fit, y_val, _ = _prepare_dl_data(
-        X_train, X_test, subjectwise_val, meta_train, y_train
+        X_train,
+        X_test,
+        subjectwise_val,
+        meta_train,
+        y_train,
+        channel_names=channel_names,
+        roi_name=roi_name,
+        paper_input=paper_input,
+        paper_preprocess=paper_preprocess,
+        use_gan=use_gan,
     )
     input_shape = (X_fit.shape[1], X_fit.shape[2])
     num_classes = len(class_names)
@@ -152,12 +213,14 @@ def run_single_deep_experiment(
     print(f"\n{model_name} summary:")
     model.summary()
 
+    class_weight = _compute_balanced_class_weights(y_fit) if use_class_weights else None
     model, history, fit_time = train_deep_model(
         model, X_fit, y_fit, X_val, y_val,
         epochs=epochs,
         batch_size=batch_size,
         model_name=model_name,
         output_dir=output_dir,
+        class_weight=class_weight,
     )
 
     metrics, pred_df = evaluate_deep_model(
@@ -198,6 +261,7 @@ def run_ml_pipeline(
     meta_test: pd.DataFrame,
     class_names: list[str],
     fs: float = 160.0,
+    paper_preprocess: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
     """Extract features and train ML models. Returns metrics, preds, train features."""
     X_train_ml = ensure_channel_first(X_train)
@@ -206,6 +270,13 @@ def run_ml_pipeline(
     X_train_feat, _ = build_ml_feature_matrix(X_train_ml, fs=fs)
     print("Extracting ML features (test)...", flush=True)
     X_test_feat, _ = build_ml_feature_matrix(X_test_ml, fs=fs)
+    if paper_preprocess:
+        print("Extracting CSP features (paper pipeline)...", flush=True)
+        X_train_csp, X_test_csp = extract_csp_features(
+            X_train_ml, y_train, X_test_ml, n_components=4
+        )
+        X_train_feat = np.hstack([X_train_feat, X_train_csp])
+        X_test_feat = np.hstack([X_test_feat, X_test_csp])
     scaler = fit_sklearn_scaler(X_train_feat)
     X_train_feat = apply_sklearn_scaler(scaler, X_train_feat)
     X_test_feat = apply_sklearn_scaler(scaler, X_test_feat)
@@ -225,7 +296,10 @@ def run_roi_experiments(
     batch_size: int = DL_BATCH_SIZE,
     output_dir: Path | None = None,
     paper_input: bool = False,
+    paper_preprocess: bool = False,
     use_paper_roi_epochs: bool = False,
+    use_gan: bool = False,
+    use_class_weights: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Run deep models across all six ROIs."""
     if model_names is None:
@@ -245,6 +319,7 @@ def run_roi_experiments(
         X, y, metadata, ch_names = build_dataset(
             subjects, runs, mode=mode, segment_length=segment_length,
             roi_name=roi, paper_input=paper_input,
+            paper_preprocess=paper_preprocess,
         )
         print(f"Selected channels ({len(ch_names)}): {ch_names}")
         X_train, X_test, y_train, y_test, meta_train, meta_test = split_fn(X, y, metadata)
@@ -254,6 +329,7 @@ def run_roi_experiments(
             from .paper_input import ROI_TRAINING_EPOCHS_PAPER
             roi_epochs = ROI_TRAINING_EPOCHS_PAPER.get(roi, epochs)
 
+        gan_for_hybrid = use_gan
         for model_name in model_names:
             metrics, pred_df, history, _ = run_single_deep_experiment(
                 X_train, y_train, X_test, y_test,
@@ -263,6 +339,12 @@ def run_roi_experiments(
                 batch_size=batch_size,
                 split_strategy=split_strategy,
                 figures_dir=figures_dir,
+                channel_names=ch_names,
+                roi_name=roi,
+                paper_input=paper_input,
+                paper_preprocess=paper_preprocess,
+                use_gan=gan_for_hybrid and model_name == "cnn_lstm_attention",
+                use_class_weights=use_class_weights,
             )
             if not metrics:
                 continue
@@ -271,7 +353,9 @@ def run_roi_experiments(
                 "mode": mode,
                 "split_strategy": split_strategy,
                 "segment_length": segment_length,
-                "augmentation": "none",
+                "augmentation": "gan" if (
+                    gan_for_hybrid and model_name == "cnn_lstm_attention"
+                ) else "none",
             })
             metrics_rows.append(metrics)
             pred_df["roi"] = roi
@@ -292,6 +376,9 @@ def run_segment_length_experiment(
     split_strategy: SplitStrategy = "subjectwise",
     model_name: str = "cnn_lstm_attention",
     output_dir: Path | None = None,
+    paper_input: bool = False,
+    paper_preprocess: bool = False,
+    use_class_weights: bool = False,
 ) -> pd.DataFrame:
     """Compare segment lengths and training epochs."""
     if segment_lengths is None:
@@ -306,8 +393,9 @@ def run_segment_length_experiment(
 
     for seg_len in segment_lengths:
         print(f"\n--- Segment length: {seg_len}s ---")
-        X, y, metadata, _ = build_dataset(
-            subjects, runs, mode=mode, segment_length=seg_len, roi_name=roi_name
+        X, y, metadata, ch_names = build_dataset(
+            subjects, runs, mode=mode, segment_length=seg_len, roi_name=roi_name,
+            paper_input=paper_input, paper_preprocess=paper_preprocess,
         )
         X_train, X_test, y_train, y_test, meta_train, meta_test = split_fn(X, y, metadata)
 
@@ -320,6 +408,11 @@ def run_segment_length_experiment(
                 epochs=n_epochs,
                 split_strategy=split_strategy,
                 output_dir=output_dir,
+                channel_names=ch_names,
+                roi_name=roi_name,
+                paper_input=paper_input,
+                paper_preprocess=paper_preprocess,
+                use_class_weights=use_class_weights,
             )
             if metrics:
                 metrics.update({
@@ -418,9 +511,12 @@ def run_complete_das2025_replication(
     dl_epochs: int = DL_EPOCHS,
     output_dir: str | Path = DEFAULT_OUTPUT_DIR,
     paper_input: bool = False,
+    paper_preprocess: bool = False,
+    paper_protocol: bool = False,
     segment_length: float | None = None,
     use_paper_roi_epochs: bool = False,
     run_visualizations: bool = True,
+    run_binary_table8: bool = False,
 ) -> dict[str, Any]:
     """
     Execute the complete Das et al. (2025) replication pipeline.
@@ -438,6 +534,15 @@ def run_complete_das2025_replication(
     np.random.seed(RANDOM_STATE)
     set_reproducibility()
 
+    if paper_protocol:
+        mode = "multiclass"
+        split_strategy = "trialwise"
+        paper_input = True
+        paper_preprocess = True
+        use_paper_roi_epochs = True
+        run_trialwise_comparison = False
+        run_binary_table8 = True
+
     subjects = get_paper_subjects()
     if max_subjects is not None:
         subjects = subjects[:max_subjects]
@@ -449,7 +554,14 @@ def run_complete_das2025_replication(
     seg_len = segment_length if segment_length is not None else DEFAULT_SEGMENT_LENGTH
     if paper_input and segment_length is None:
         from .paper_input import get_paper_segment_length
-        seg_len = get_paper_segment_length(use_640_samples=True)
+
+        # Paper: 5 s epochs, 640×2 matrix via center crop
+        seg_len = get_paper_segment_length(use_640_samples=False)
+
+    primary_dl_epochs = _resolve_primary_dl_epochs(
+        dl_epochs, "ROI_6", use_paper_roi_epochs
+    )
+    use_class_weights = paper_protocol or paper_preprocess
 
     config = {
         "mode": mode,
@@ -457,8 +569,11 @@ def run_complete_das2025_replication(
         "subjects": len(subjects),
         "runs": runs,
         "dl_epochs": dl_epochs,
+        "primary_dl_epochs_roi6": primary_dl_epochs,
         "segment_length": seg_len,
         "paper_input": paper_input,
+        "paper_preprocess": paper_preprocess,
+        "paper_protocol": paper_protocol,
         "use_paper_roi_epochs": use_paper_roi_epochs,
         "run_ml": run_ml,
         "run_deep": run_deep,
@@ -466,6 +581,7 @@ def run_complete_das2025_replication(
         "run_segment": do_segment_experiment,
         "run_riemannian": run_riemannian,
         "run_gan": run_gan,
+        "run_binary_table8": run_binary_table8,
         "random_state": RANDOM_STATE,
     }
     save_experiment_config(config, out_dir)
@@ -479,42 +595,44 @@ def run_complete_das2025_replication(
     print(f"  split:             {split_strategy}")
     print(f"  subjects:          {len(subjects)}")
     print(f"  paper_input:       {paper_input}")
+    print(f"  paper_preprocess:  {paper_preprocess}")
+    print(f"  paper_protocol:    {paper_protocol}")
     print(f"  paper_roi_epochs:  {use_paper_roi_epochs}")
     print(f"  segment_length:    {seg_len}s")
-    print(f"  dl_epochs:         {dl_epochs}")
+    print(f"  dl_epochs:         {dl_epochs} (ROI_6 primary: {primary_dl_epochs})")
     print(f"  run_roi:           {do_roi_experiments}")
     print("=" * 70)
 
     # --- Primary dataset (ROI_6, 5s) ---
     print("\n" + "=" * 70)
-    print("BUILDING PRIMARY DATASET (ROI_6, 5s)")
+    print("BUILDING PRIMARY DATASET (ROI_6)")
     print("=" * 70)
     X, y, metadata, roi_channels = build_dataset(
         subjects, runs, mode=mode, segment_length=seg_len,
         roi_name="ROI_6", paper_input=paper_input,
+        paper_preprocess=paper_preprocess,
     )
     print_dataset_summary(X, y, metadata, class_names)
 
     summary_rows = [{
         "n_trials": len(y),
         "n_subjects": metadata["subject"].nunique(),
-        "n_channels": X.shape[1],
-        "n_samples": X.shape[2],
+        "n_channels": X.shape[1] if X.ndim == 3 else 2,
+        "n_samples": X.shape[1] if X.ndim == 3 and X.shape[-1] <= 4 else X.shape[2],
         "mode": mode,
-        "segment_length": DEFAULT_SEGMENT_LENGTH,
+        "segment_length": seg_len,
         "roi": "ROI_6",
     }]
     pd.DataFrame(summary_rows).to_csv(out_dir / "dataset_summary.csv", index=False)
 
-    # --- Subject-wise split (thesis-grade) ---
-    print("\n--- Subject-wise split (primary) ---")
-    X_train, X_test, y_train, y_test, meta_train, meta_test = make_subjectwise_split(
+    split_fn = _get_split_fn(split_strategy)
+    print(f"\n--- Primary split: {split_strategy} ---")
+    X_train, X_test, y_train, y_test, meta_train, meta_test = split_fn(
         X, y, metadata
     )
 
-    # --- Trial-wise split (paper-like comparison) ---
-    if run_trialwise_comparison:
-        print("\n--- Trial-wise split (paper-like) ---")
+    if run_trialwise_comparison and split_strategy != "trialwise":
+        print("\n--- Trial-wise split (comparison) ---")
         make_trialwise_split(X, y, metadata)
 
     # --- ML models ---
@@ -523,7 +641,8 @@ def run_complete_das2025_replication(
         print("TRADITIONAL ML MODELS")
         print("=" * 70)
         ml_metrics, ml_preds, X_train_feat = run_ml_pipeline(
-            X_train, y_train, X_test, y_test, meta_test, class_names
+            X_train, y_train, X_test, y_test, meta_test, class_names,
+            paper_preprocess=paper_preprocess,
         )
         ml_metrics["split_strategy"] = split_strategy
         ml_metrics["mode"] = mode
@@ -559,17 +678,25 @@ def run_complete_das2025_replication(
                 X_train, y_train, X_test, y_test,
                 meta_train, meta_test, class_names,
                 model_name=model_name,
-                epochs=dl_epochs,
+                epochs=primary_dl_epochs,
                 split_strategy=split_strategy,
                 output_dir=out_dir,
                 figures_dir=figures_dir,
+                channel_names=roi_channels,
+                roi_name="ROI_6",
+                paper_input=paper_input,
+                paper_preprocess=paper_preprocess,
+                use_gan=run_gan and model_name == "cnn_lstm_attention",
+                use_class_weights=use_class_weights,
             )
             if metrics:
                 metrics["split_strategy"] = split_strategy
                 metrics["mode"] = mode
                 metrics["roi"] = "ROI_6"
-                metrics["segment_length"] = DEFAULT_SEGMENT_LENGTH
-                metrics["augmentation"] = "none"
+                metrics["segment_length"] = seg_len
+                metrics["augmentation"] = (
+                    "gan" if run_gan and model_name == "cnn_lstm_attention" else "none"
+                )
                 deep_metrics_all.append(metrics)
                 all_preds.append(pred_df)
 
@@ -608,7 +735,10 @@ def run_complete_das2025_replication(
         roi_df, roi_preds, _ = run_roi_experiments(
             subjects, mode=mode, segment_length=seg_len,
             split_strategy=split_strategy, epochs=dl_epochs, output_dir=out_dir,
-            paper_input=paper_input, use_paper_roi_epochs=use_paper_roi_epochs,
+            paper_input=paper_input, paper_preprocess=paper_preprocess,
+            use_paper_roi_epochs=use_paper_roi_epochs,
+            use_gan=run_gan,
+            use_class_weights=use_class_weights,
         )
         roi_df.to_csv(out_dir / "roi_results.csv", index=False)
         results["roi_results"] = roi_df
@@ -621,12 +751,17 @@ def run_complete_das2025_replication(
         print("\n" + "=" * 70)
         print("SEGMENT LENGTH EXPERIMENT")
         print("=" * 70)
+        seg_mode = "binary" if paper_protocol else mode
         seg_df = run_segment_length_experiment(
             subjects, roi_name="ROI_6",
-            segment_lengths=[1.0, 4.0, 5.0],
+            segment_lengths=[1.0, 5.0],
             epochs_list=[25, 50],
-            mode=mode, split_strategy=split_strategy,
+            mode=seg_mode,
+            split_strategy=split_strategy,
             output_dir=out_dir,
+            paper_input=paper_input,
+            paper_preprocess=paper_preprocess,
+            use_class_weights=use_class_weights,
         )
         seg_df.to_csv(out_dir / "segment_length_results.csv", index=False)
         results["segment_length"] = seg_df
@@ -658,6 +793,28 @@ def run_complete_das2025_replication(
         )
         gan_df.to_csv(out_dir / "gan_comparison_results.csv", index=False)
         results["gan"] = gan_df
+
+    # --- Table 8 / Fig. 8: binary left vs right (paper results section) ---
+    if run_binary_table8:
+        print("\n" + "=" * 70)
+        print("BINARY TABLE 8 EXPERIMENT (left vs right hand, 1s/5s × 25/50 ep)")
+        print("=" * 70)
+        bin_dir = out_dir / "binary_table8"
+        bin_dir.mkdir(parents=True, exist_ok=True)
+        seg_bin = run_segment_length_experiment(
+            subjects,
+            roi_name="ROI_6",
+            segment_lengths=[1.0, 5.0],
+            epochs_list=[25, 50],
+            mode="binary",
+            split_strategy=split_strategy,
+            output_dir=bin_dir,
+            paper_input=paper_input,
+            paper_preprocess=paper_preprocess,
+            use_class_weights=use_class_weights,
+        )
+        seg_bin.to_csv(out_dir / "binary_table8_results.csv", index=False)
+        results["binary_table8"] = seg_bin
 
     # --- Multiclass ---
     if run_multiclass:
@@ -731,6 +888,21 @@ if __name__ == "__main__":
         help="Use per-ROI training epochs from paper Table 6",
     )
     parser.add_argument(
+        "--paper-preprocess",
+        action="store_true",
+        help="ICA + CSP spatial filtering (Das et al. 2025)",
+    )
+    parser.add_argument(
+        "--paper-protocol",
+        action="store_true",
+        help="Full paper protocol: multiclass, trialwise, 5s→640×2, ICA+CSP, Table 6 epochs",
+    )
+    parser.add_argument(
+        "--binary-table8",
+        action="store_true",
+        help="Binary Table 8 sweep (1s/5s × 25/50 ep, left vs right)",
+    )
+    parser.add_argument(
         "--trialwise",
         action="store_true",
         help="Trial-wise split (closer to undocumented paper protocol)",
@@ -749,7 +921,10 @@ if __name__ == "__main__":
         max_subjects=max_subj,
         dl_epochs=args.epochs,
         output_dir=args.output_dir,
-        paper_input=args.paper_input,
-        use_paper_roi_epochs=args.paper_roi_epochs,
+        paper_input=args.paper_input or args.paper_protocol,
+        paper_preprocess=args.paper_preprocess or args.paper_protocol,
+        paper_protocol=args.paper_protocol,
+        use_paper_roi_epochs=args.paper_roi_epochs or args.paper_protocol,
+        run_binary_table8=args.binary_table8 or args.paper_protocol,
         run_visualizations=not args.no_viz,
     )

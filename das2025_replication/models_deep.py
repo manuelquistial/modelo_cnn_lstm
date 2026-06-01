@@ -203,6 +203,7 @@ def train_deep_model(
     batch_size: int = DL_BATCH_SIZE,
     model_name: str = "cnn_lstm_attention",
     output_dir: str | Path | None = None,
+    class_weight: dict[int, float] | None = None,
 ) -> tuple[Any, Any, float]:
     """
     Train deep model with early stopping and LR scheduling.
@@ -229,6 +230,10 @@ def train_deep_model(
             )
         )
 
+    fit_kwargs: dict[str, Any] = {}
+    if class_weight:
+        fit_kwargs["class_weight"] = class_weight
+
     t0 = time.perf_counter()
     history = model.fit(
         X_train,
@@ -238,6 +243,7 @@ def train_deep_model(
         batch_size=batch_size,
         callbacks=callbacks,
         verbose=1,
+        **fit_kwargs,
     )
     train_time = time.perf_counter() - t0
     return model, history.history, train_time

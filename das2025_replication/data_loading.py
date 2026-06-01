@@ -36,6 +36,28 @@ def _standardize_channel_names(raw: mne.io.BaseRaw) -> mne.io.BaseRaw:
     return raw
 
 
+def _load_eegbci_filenames(
+    subject_id: int,
+    runs: list[int],
+    verbose: bool | str = False,
+) -> list[str]:
+    """
+    Load PhysioNet file paths with MNE version compatibility.
+
+    MNE >= 1.0 uses ``subjects=``; older versions used ``subject=`` or positional args.
+    """
+    import inspect
+
+    sig = inspect.signature(eegbci.load_data)
+    params = sig.parameters
+
+    if "subjects" in params:
+        return eegbci.load_data(subjects=subject_id, runs=runs, verbose=verbose)
+    if "subject" in params:
+        return eegbci.load_data(subject=subject_id, runs=runs, verbose=verbose)
+    return eegbci.load_data(subject_id, runs, verbose=verbose)
+
+
 def load_physionet_subject(
     subject_id: int,
     runs: list[int],
@@ -45,7 +67,10 @@ def load_physionet_subject(
     if verbose is False:
         mne.set_log_level("WARNING")
 
-    raw_fnames = eegbci.load_data(subject=subject_id, runs=runs, verbose=verbose)
+    raw_fnames = _load_eegbci_filenames(subject_id, runs, verbose=verbose)
+    # MNE may return nested lists when multiple subjects; we request one subject.
+    if raw_fnames and isinstance(raw_fnames[0], (list, tuple)):
+        raw_fnames = list(raw_fnames[0])
     raws = []
     for run_id, fname in zip(runs, raw_fnames):
         raw = read_raw_edf(fname, preload=True, verbose=verbose)

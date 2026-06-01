@@ -573,8 +573,11 @@ def run_complete_das2025_replication(
                 deep_metrics_all.append(metrics)
                 all_preds.append(pred_df)
 
-                # t-SNE on embeddings for hybrid model
-                if model_name == "cnn_lstm_attention" and model is not None:
+                if (
+                    run_visualizations
+                    and model_name == "cnn_lstm_attention"
+                    and model is not None
+                ):
                     X_tr_dl = prepare_deep_learning_input(X_train)
                     mean_e, std_e = fit_channelwise_standardizer(X_tr_dl)
                     X_te_dl = apply_channelwise_standardizer(
@@ -583,7 +586,7 @@ def run_complete_das2025_replication(
                     n_emb = min(300, len(y_test))
                     emb = extract_deep_embeddings(model, X_te_dl[:n_emb])
                     plot_tsne_embeddings(
-                        emb, y_test[:300], class_names,
+                        emb, y_test[:n_emb], class_names,
                         title="t-SNE CNN-LSTM-Attention embeddings",
                         save_path=figures_dir / "tsne_deep_embeddings.png",
                     )

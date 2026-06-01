@@ -261,4 +261,4 @@ def extract_deep_embeddings(
             inputs=model.input,
             outputs=model.layers[-2].output,
         )
-    return emb_model.predict(X, verbose=0)
+    return emb_model.predict(X, verbose=0, batch_size=64)

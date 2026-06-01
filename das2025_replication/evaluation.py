@@ -123,7 +123,7 @@ def evaluate_deep_model(
 ) -> tuple[dict[str, Any], pd.DataFrame]:
     """Evaluate a trained Keras model on test data."""
     t0 = time.perf_counter()
-    y_proba = model.predict(X_test, verbose=0)
+    y_proba = model.predict(X_test, verbose=0, batch_size=64)
     inference_time = time.perf_counter() - t0
 
     if y_proba.ndim == 1:

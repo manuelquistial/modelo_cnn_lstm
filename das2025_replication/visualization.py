@@ -160,17 +160,27 @@ def plot_tsne_raw_features(
     title: str = "t-SNE (raw features)",
     save_path: str | Path | None = None,
     perplexity: float = 30.0,
-) -> np.ndarray:
+) -> np.ndarray | None:
     """t-SNE on feature vectors (visualization only)."""
     n = len(y)
-    perp = min(perplexity, max(5, n // 10))
+    if n < 4:
+        print(f"  t-SNE skipped: need >= 4 samples, got {n}.", flush=True)
+        return None
+    if len(y) != X_features.shape[0]:
+        n = min(len(y), X_features.shape[0])
+        X_features = X_features[:n]
+        y = y[:n]
+
+    perp = min(perplexity, max(5, (n - 1) // 3))
     X_in = X_features
-    if X_features.shape[1] > 50:
+    n_samples, n_features = X_features.shape
+    max_pca = min(50, n_features, max(2, n_samples - 1))
+    if n_features > max_pca and max_pca >= 2:
         print(
-            f"  t-SNE: PCA 50D pre-reduction ({X_features.shape[1]} features)...",
+            f"  t-SNE: PCA {max_pca}D pre-reduction ({n_features} features, {n_samples} samples)...",
             flush=True,
         )
-        X_in = PCA(n_components=50, random_state=42).fit_transform(X_features)
+        X_in = PCA(n_components=max_pca, random_state=42).fit_transform(X_features)
     print(f"  t-SNE: fitting {n} samples (perplexity={perp:.0f})...", flush=True)
     tsne = TSNE(
         n_components=2,

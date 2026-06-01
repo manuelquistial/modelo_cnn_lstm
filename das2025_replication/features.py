@@ -85,7 +85,11 @@ def extract_time_frequency_features(
 
     feat_list: list[np.ndarray] = []
     for ch in range(n_channels):
-        ch_data = X[:, ch, :]
+        ch_data = X[:, ch, :].astype(np.float64, copy=False)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            skew = stats.skew(ch_data, axis=1)
+            kurt = stats.kurtosis(ch_data, axis=1)
         feat_list.extend([
             np.mean(ch_data, axis=1),
             np.median(ch_data, axis=1),
@@ -93,8 +97,8 @@ def extract_time_frequency_features(
             np.std(ch_data, axis=1),
             np.min(ch_data, axis=1),
             np.max(ch_data, axis=1),
-            stats.skew(ch_data, axis=1),
-            stats.kurtosis(ch_data, axis=1),
+            skew,
+            kurt,
             np.sqrt(np.mean(ch_data ** 2, axis=1)),
             np.mean(np.abs(np.diff(np.sign(ch_data), axis=1)), axis=1) / 2.0,
         ])

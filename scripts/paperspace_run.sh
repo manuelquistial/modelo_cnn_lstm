@@ -59,6 +59,10 @@ if [[ "${PAPER:-0}" == "1" ]]; then
     echo "WARNING: PAPER=1 without MAX_SUBJECTS — all 103 subjects + 6 ROIs (many hours)."
     echo "         Suggested: MAX_SUBJECTS=15 PAPER=1 ./scripts/paperspace_run.sh"
   fi
+  # Skip slow t-SNE during long paper runs unless VIZ=1
+  if [[ "${VIZ:-0}" != "1" ]]; then
+    ARGS+=(--no-viz)
+  fi
 fi
 
 echo "==> Running: python ${ARGS[*]} ${EXTRA_ARGS[*]}"

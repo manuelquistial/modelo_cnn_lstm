@@ -164,8 +164,24 @@ def plot_tsne_raw_features(
     """t-SNE on feature vectors (visualization only)."""
     n = len(y)
     perp = min(perplexity, max(5, n // 10))
-    tsne = TSNE(n_components=2, random_state=42, perplexity=perp, max_iter=1000)
-    X_emb = tsne.fit_transform(X_features)
+    X_in = X_features
+    if X_features.shape[1] > 50:
+        print(
+            f"  t-SNE: PCA 50D pre-reduction ({X_features.shape[1]} features)...",
+            flush=True,
+        )
+        X_in = PCA(n_components=50, random_state=42).fit_transform(X_features)
+    print(f"  t-SNE: fitting {n} samples (perplexity={perp:.0f})...", flush=True)
+    tsne = TSNE(
+        n_components=2,
+        random_state=42,
+        perplexity=perp,
+        max_iter=500,
+        init="pca",
+        learning_rate="auto",
+    )
+    X_emb = tsne.fit_transform(X_in)
+    print("  t-SNE: done.", flush=True)
     _plot_tsne_scatter(X_emb, y, class_names, title, save_path)
     return X_emb
 

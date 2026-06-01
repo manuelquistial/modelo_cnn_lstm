@@ -198,20 +198,21 @@ def run_ml_pipeline(
     meta_test: pd.DataFrame,
     class_names: list[str],
     fs: float = 160.0,
-) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Extract features and train ML models."""
+) -> tuple[pd.DataFrame, pd.DataFrame, np.ndarray]:
+    """Extract features and train ML models. Returns metrics, preds, train features."""
     X_train_ml = ensure_channel_first(X_train)
     X_test_ml = ensure_channel_first(X_test)
-    print("Extracting ML features (train)...")
+    print("Extracting ML features (train)...", flush=True)
     X_train_feat, _ = build_ml_feature_matrix(X_train_ml, fs=fs)
-    print("Extracting ML features (test)...")
+    print("Extracting ML features (test)...", flush=True)
     X_test_feat, _ = build_ml_feature_matrix(X_test_ml, fs=fs)
     scaler = fit_sklearn_scaler(X_train_feat)
     X_train_feat = apply_sklearn_scaler(scaler, X_train_feat)
     X_test_feat = apply_sklearn_scaler(scaler, X_test_feat)
-    return train_evaluate_ml_models(
+    metrics, preds = train_evaluate_ml_models(
         X_train_feat, y_train, X_test_feat, y_test, meta_test, class_names
     )
+    return metrics, preds, X_train_feat
 
 
 def run_roi_experiments(
@@ -419,6 +420,7 @@ def run_complete_das2025_replication(
     paper_input: bool = False,
     segment_length: float | None = None,
     use_paper_roi_epochs: bool = False,
+    run_visualizations: bool = True,
 ) -> dict[str, Any]:
     """
     Execute the complete Das et al. (2025) replication pipeline.
@@ -520,7 +522,7 @@ def run_complete_das2025_replication(
         print("\n" + "=" * 70)
         print("TRADITIONAL ML MODELS")
         print("=" * 70)
-        ml_metrics, ml_preds = run_ml_pipeline(
+        ml_metrics, ml_preds, X_train_feat = run_ml_pipeline(
             X_train, y_train, X_test, y_test, meta_test, class_names
         )
         ml_metrics["split_strategy"] = split_strategy
@@ -529,26 +531,29 @@ def run_complete_das2025_replication(
         results["ml_metrics"] = ml_metrics
         print(ml_metrics[["model", "accuracy", "balanced_accuracy", "f1_macro", "mcc"]])
 
-        # PCA / t-SNE on ML features
-        X_train_feat, _ = build_ml_feature_matrix(X_train)
-        plot_tsne_raw_features(
-            X_train_feat[:500], y_train[:500], class_names,
-            title="t-SNE raw ML features (train subset)",
-            save_path=figures_dir / "tsne_ml_features.png",
-        )
-        run_pca_visualization(
-            X_train_feat[:500], y_train[:500], class_names,
-            title="PCA ML features",
-            save_path=figures_dir / "pca_ml_features.png",
-        )
+        if run_visualizations:
+            n_viz = min(500, len(y_train))
+            print(f"\nVisualizations (n={n_viz})...", flush=True)
+            plot_tsne_raw_features(
+                X_train_feat[:n_viz], y_train[:n_viz], class_names,
+                title="t-SNE raw ML features (train subset)",
+                save_path=figures_dir / "tsne_ml_features.png",
+            )
+            run_pca_visualization(
+                X_train_feat[:n_viz], y_train[:n_viz], class_names,
+                title="PCA ML features",
+                save_path=figures_dir / "pca_ml_features.png",
+            )
+        else:
+            print("Skipping ML visualizations (--no-viz).", flush=True)
 
     # --- Deep models ---
     deep_metrics_all = []
     all_preds = []
     if run_deep:
-        print("\n" + "=" * 70)
-        print("DEEP LEARNING MODELS")
-        print("=" * 70)
+        print("\n" + "=" * 70, flush=True)
+        print("DEEP LEARNING MODELS", flush=True)
+        print("=" * 70, flush=True)
         for model_name in ["cnn", "lstm", "cnn_lstm_attention"]:
             metrics, pred_df, history, model = run_single_deep_experiment(
                 X_train, y_train, X_test, y_test,
@@ -727,6 +732,7 @@ if __name__ == "__main__":
         action="store_true",
         help="Trial-wise split (closer to undocumented paper protocol)",
     )
+    parser.add_argument("--no-viz", action="store_true", help="Skip t-SNE/PCA plots")
     args = parser.parse_args()
 
     max_subj = 5 if args.quick else args.max_subjects
@@ -742,4 +748,5 @@ if __name__ == "__main__":
         output_dir=args.output_dir,
         paper_input=args.paper_input,
         use_paper_roi_epochs=args.paper_roi_epochs,
+        run_visualizations=not args.no_viz,
     )

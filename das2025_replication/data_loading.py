@@ -4,6 +4,7 @@ PhysioNet EEG Motor Movement/Imagery dataset loading, event mapping, and epochin
 
 from __future__ import annotations
 
+import os
 import warnings
 from typing import Literal
 
@@ -51,11 +52,16 @@ def _load_eegbci_filenames(
     sig = inspect.signature(eegbci.load_data)
     params = sig.parameters
 
+    kwargs: dict = {"verbose": verbose, "update_path": False}
+    data_path = os.environ.get("MNE_DATA")
+    if data_path:
+        kwargs["path"] = data_path
+
     if "subjects" in params:
-        return eegbci.load_data(subjects=subject_id, runs=runs, verbose=verbose)
+        return eegbci.load_data(subjects=subject_id, runs=runs, **kwargs)
     if "subject" in params:
-        return eegbci.load_data(subject=subject_id, runs=runs, verbose=verbose)
-    return eegbci.load_data(subject_id, runs, verbose=verbose)
+        return eegbci.load_data(subject=subject_id, runs=runs, **kwargs)
+    return eegbci.load_data(subject_id, runs, **kwargs)
 
 
 def load_physionet_subject(
@@ -81,7 +87,7 @@ def load_physionet_subject(
         combined = raws[0]
     else:
         combined, _ = mne.concatenate_raws(raws)
-    combined.info["subject_id"] = subject_id
+    # MNE 1.12+ forbids arbitrary info keys; subject id is tracked in metadata.
     return combined
 
 

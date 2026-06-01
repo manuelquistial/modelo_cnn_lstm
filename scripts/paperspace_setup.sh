@@ -38,7 +38,14 @@ pip install -e .
 # Persist PhysioNet / MNE data on Paperspace volume (optional)
 export MNE_DATA="${MNE_DATA:-$REPO_ROOT/mne_data}"
 mkdir -p "$MNE_DATA"
-echo "export MNE_DATA=$MNE_DATA" >> .venv/bin/activate
+# Non-interactive MNE config (avoid "set as default path [y]/n?" on first download)
+export MNE_HOME="${MNE_HOME:-$REPO_ROOT/.mne}"
+mkdir -p "$MNE_HOME"
+if [[ ! -f "$MNE_HOME/mne-python.json" ]]; then
+  printf '%s\n' "{\"eegbci\": {\"path\": \"$MNE_DATA\"}}" > "$MNE_HOME/mne-python.json"
+fi
+grep -q 'MNE_DATA=' .venv/bin/activate 2>/dev/null || echo "export MNE_DATA=$MNE_DATA" >> .venv/bin/activate
+grep -q 'MNE_HOME=' .venv/bin/activate 2>/dev/null || echo "export MNE_HOME=$MNE_HOME" >> .venv/bin/activate
 
 python -c "
 import tensorflow as tf

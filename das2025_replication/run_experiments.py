@@ -632,7 +632,7 @@ def run_complete_das2025_replication(
     do_segment_experiment: bool = True,
     run_riemannian: bool = True,
     run_gan: bool = False,
-    run_gan_ablation: bool = False,
+    do_gan_ablation: bool = False,
     max_subjects: int | None = None,
     dl_epochs: int = DL_EPOCHS,
     output_dir: str | Path = DEFAULT_OUTPUT_DIR,
@@ -711,7 +711,7 @@ def run_complete_das2025_replication(
         "run_segment": do_segment_experiment,
         "run_riemannian": run_riemannian,
         "run_gan": run_gan,
-        "run_gan_ablation": run_gan_ablation or run_gan_ablation_flag,
+        "run_gan_ablation": do_gan_ablation or run_gan_ablation_flag,
         "split_ratios": "70/15/15" if split_strategy == "subjectwise_3way" else "legacy",
         "run_binary_table8": run_binary_table8,
         "random_state": RANDOM_STATE,
@@ -923,7 +923,7 @@ def run_complete_das2025_replication(
             results["riemannian"] = riem_metrics
 
     # --- GAN ablation (WGAN-GP train-only; test real only) ---
-    if run_gan_ablation or run_gan_ablation_flag:
+    if do_gan_ablation or run_gan_ablation_flag:
         print("\n" + "=" * 70)
         print("GAN ABLATION (CNN-LSTM: none vs WGAN-GP)")
         print("=" * 70)
@@ -945,7 +945,7 @@ def run_complete_das2025_replication(
         results["gan_ablation"] = gan_abl
 
     # --- Legacy GAN comparison ---
-    if run_gan and not (run_gan_ablation or run_gan_ablation_flag):
+    if run_gan and not (do_gan_ablation or run_gan_ablation_flag):
         print("\n" + "=" * 70)
         print("GAN AUGMENTATION COMPARISON")
         print("=" * 70)
@@ -1088,7 +1088,7 @@ if __name__ == "__main__":
         mode=args.mode,
         split_strategy="trialwise" if args.trialwise else args.split,
         run_gan=args.gan,
-        run_gan_ablation=args.gan_ablation,
+        do_gan_ablation=args.gan_ablation,
         do_roi_experiments=not args.no_roi,
         do_segment_experiment=not args.no_segment,
         max_subjects=max_subj,

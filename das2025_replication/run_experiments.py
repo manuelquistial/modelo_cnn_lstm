@@ -29,6 +29,7 @@ from .config import (
 )
 from .data_loading import (
     build_dataset,
+    build_full_epochs_dataset,
     ensure_channel_first,
     prepare_deep_learning_input,
     print_dataset_summary,
@@ -351,6 +352,7 @@ def run_roi_experiments(
     use_paper_roi_epochs: bool = False,
     use_gan: bool = False,
     use_class_weights: bool = False,
+    dataset_base: tuple[np.ndarray, np.ndarray, pd.DataFrame, list[str]] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Run deep models across all six ROIs."""
     if model_names is None:
@@ -360,6 +362,15 @@ def run_roi_experiments(
     class_names = _get_class_names(mode)
     runs = _get_runs(mode)
 
+    if dataset_base is None:
+        print("\nLoading full dataset once (ICA applied per subject, not per ROI)...")
+        dataset_base = build_full_epochs_dataset(
+            subjects, runs, mode=mode, segment_length=segment_length,
+            paper_preprocess=paper_preprocess, verbose=True,
+        )
+    else:
+        print("\nReusing cached full dataset for ROI experiments (no reload).")
+
     metrics_rows = []
     all_preds = []
     histories: dict[str, Any] = {}
@@ -367,9 +378,9 @@ def run_roi_experiments(
     for roi in list_all_rois():
         print(f"\n{'=' * 60}\nROI EXPERIMENT: {roi}\n{'=' * 60}")
         X, y, metadata, ch_names = build_dataset(
-            subjects, runs, mode=mode, segment_length=segment_length,
             roi_name=roi, paper_input=paper_input,
             paper_preprocess=paper_preprocess,
+            dataset_base=dataset_base, verbose=False,
         )
         print(f"Selected channels ({len(ch_names)}): {ch_names}")
         (
@@ -724,14 +735,18 @@ def run_complete_das2025_replication(
     print(f"  run_roi:           {do_roi_experiments}")
     print("=" * 70)
 
-    # --- Primary dataset (ROI_6, 5s) ---
+    # --- Primary dataset (ROI_6, 5s) — load full montage once ---
     print("\n" + "=" * 70)
-    print("BUILDING PRIMARY DATASET (ROI_6)")
+    print("BUILDING PRIMARY DATASET (full montage → ROI_6)")
     print("=" * 70)
-    X, y, metadata, roi_channels = build_dataset(
+    dataset_base = build_full_epochs_dataset(
         subjects, runs, mode=mode, segment_length=seg_len,
+        paper_preprocess=paper_preprocess, verbose=True,
+    )
+    X, y, metadata, roi_channels = build_dataset(
         roi_name="ROI_6", paper_input=paper_input,
         paper_preprocess=paper_preprocess,
+        dataset_base=dataset_base, verbose=True,
     )
     print_dataset_summary(X, y, metadata, class_names)
 
@@ -865,6 +880,7 @@ def run_complete_das2025_replication(
             use_paper_roi_epochs=use_paper_roi_epochs,
             use_gan=run_gan,
             use_class_weights=use_class_weights,
+            dataset_base=dataset_base,
         )
         roi_df.to_csv(out_dir / "roi_results.csv", index=False)
         results["roi_results"] = roi_df

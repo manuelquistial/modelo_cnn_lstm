@@ -265,16 +265,47 @@ def apply_ica_artifact_removal(
     When ``auto_reject=True``, excludes up to two components with highest
     kurtosis (muscle/artifact proxy) when EOG channels are unavailable.
     """
-    raw_ica = raw.copy()
+    cleaned = apply_ica_artifact_removal_batch([raw], n_components, random_state, auto_reject)
+    return cleaned[0]
+
+
+def apply_ica_artifact_removal_batch(
+    raws: list[mne.io.BaseRaw],
+    n_components: float | int | None = 0.99,
+    random_state: int = RANDOM_STATE,
+    auto_reject: bool = True,
+) -> list[mne.io.BaseRaw]:
+    """
+    Fit ICA once on concatenated runs, apply to each run (faster than per-run ICA).
+    """
+    import warnings
+
+    if not raws:
+        return []
+
+    if len(raws) == 1:
+        raw_ica = raws[0].copy()
+    else:
+        raw_ica = mne.concatenate_raws([r.copy() for r in raws], verbose="ERROR")
+
     n_comp = n_components
     if n_comp is None:
         n_comp = min(int(0.99 * len(mne.pick_types(raw_ica.info, eeg=True))), 20)
-    ica = mne.preprocessing.ICA(
-        n_components=n_comp,
-        random_state=random_state,
-        max_iter="auto",
-    )
-    ica.fit(raw_ica)
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message="FastICA did not converge.*",
+            category=UserWarning,
+        )
+        ica = mne.preprocessing.ICA(
+            n_components=n_comp,
+            random_state=random_state,
+            max_iter=500,
+            method="picard",
+        )
+        ica.fit(raw_ica)
+
     if auto_reject:
         excluded: list[int] = []
         try:
@@ -301,8 +332,13 @@ def apply_ica_artifact_removal(
             except Exception:
                 pass
         ica.exclude = list(dict.fromkeys(excluded))[:2]
-    ica.apply(raw_ica)
-    return raw_ica
+
+    cleaned: list[mne.io.BaseRaw] = []
+    for raw in raws:
+        out = raw.copy()
+        ica.apply(out)
+        cleaned.append(out)
+    return cleaned
 
 
 def extract_csp_features(

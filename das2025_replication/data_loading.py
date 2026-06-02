@@ -204,16 +204,24 @@ def extract_epochs_for_subject(
     meta_rows: list[dict] = []
     ch_names: list[str] = []
 
+    run_raws: list[tuple[int, mne.io.BaseRaw]] = []
     for run_id in runs:
         raw = load_physionet_subject(subject_id, [run_id], verbose=verbose)
         raw.filter(l_freq, h_freq, fir_design="firwin", verbose=verbose)
-        if use_ica:
-            from .preprocessing import apply_ica_artifact_removal
+        run_raws.append((run_id, raw))
 
-            try:
-                raw = apply_ica_artifact_removal(raw, auto_reject=True)
-            except Exception as exc:
-                warnings.warn(f"ICA skipped subject {subject_id} run {run_id}: {exc}")
+    if use_ica and run_raws:
+        from .preprocessing import apply_ica_artifact_removal_batch
+
+        try:
+            cleaned = apply_ica_artifact_removal_batch(
+                [raw for _, raw in run_raws], auto_reject=True
+            )
+            run_raws = [(run_id, raw) for (run_id, _), raw in zip(run_raws, cleaned)]
+        except Exception as exc:
+            warnings.warn(f"ICA skipped subject {subject_id}: {exc}")
+
+    for run_id, raw in run_raws:
         sfreq = raw.info["sfreq"]
         tmax = tmin + segment_length - (1.0 / sfreq)
 
@@ -292,22 +300,23 @@ def extract_epochs_for_subject(
     return X, y, metadata, ch_names
 
 
-def build_dataset(
+def build_full_epochs_dataset(
     subjects: list[int] | None = None,
     runs: list[int] | None = None,
     mode: ModeType = "binary",
     segment_length: float = 5.0,
-    roi_name: str = "ROI_6",
     l_freq: float = DEFAULT_L_FREQ,
     h_freq: float = DEFAULT_H_FREQ,
-    paper_input: bool = False,
     paper_preprocess: bool = False,
     use_ica: bool = False,
     verbose: bool = True,
 ) -> tuple[np.ndarray, np.ndarray, pd.DataFrame, list[str]]:
-    """Build full dataset across subjects with ROI channel selection."""
-    from .rois import select_roi
+    """
+    Load all subjects once with the full EEG montage (no ROI selection).
 
+    Reuse the returned tuple as ``dataset_base`` for ``build_dataset`` across ROIs
+    to avoid reloading PhysioNet data and re-running ICA.
+    """
     if paper_preprocess:
         use_ica = True
 
@@ -344,6 +353,51 @@ def build_dataset(
     X = np.concatenate(X_list, axis=0)
     y = np.concatenate(y_list, axis=0)
     metadata = pd.concat(meta_list, ignore_index=True)
+    assert len(X) == len(y) == len(metadata)
+    if verbose:
+        print(
+            f"  Full dataset cached: {X.shape} trials, "
+            f"{len(channel_names)} channels, ICA={'on' if use_ica else 'off'}"
+        )
+    return X, y, metadata, channel_names
+
+
+def build_dataset(
+    subjects: list[int] | None = None,
+    runs: list[int] | None = None,
+    mode: ModeType = "binary",
+    segment_length: float = 5.0,
+    roi_name: str = "ROI_6",
+    l_freq: float = DEFAULT_L_FREQ,
+    h_freq: float = DEFAULT_H_FREQ,
+    paper_input: bool = False,
+    paper_preprocess: bool = False,
+    use_ica: bool = False,
+    verbose: bool = True,
+    dataset_base: tuple[np.ndarray, np.ndarray, pd.DataFrame, list[str]] | None = None,
+) -> tuple[np.ndarray, np.ndarray, pd.DataFrame, list[str]]:
+    """Build dataset with ROI channel selection.
+
+    Pass ``dataset_base`` from :func:`build_full_epochs_dataset` to select ROIs
+    without reloading subjects or re-running ICA.
+    """
+    from .rois import select_roi
+
+    if dataset_base is not None:
+        X, y, metadata, channel_names = dataset_base
+    else:
+        X, y, metadata, channel_names = build_full_epochs_dataset(
+            subjects=subjects,
+            runs=runs,
+            mode=mode,
+            segment_length=segment_length,
+            l_freq=l_freq,
+            h_freq=h_freq,
+            paper_preprocess=paper_preprocess,
+            use_ica=use_ica,
+            verbose=verbose,
+        )
+
     X, roi_channel_names = select_roi(X, channel_names, roi_name)
 
     if paper_input and not paper_preprocess:
